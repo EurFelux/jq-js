@@ -319,6 +319,14 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
 
     case "var_ref":
       return (_input) => {
+        if (node.name === "$__loc__") return [{ file: "<stdin>", line: 1 }];
+        if (node.name === "$ENV") {
+          const result: Record<string, JsonValue> = {};
+          for (const [k, v] of Object.entries(process.env)) {
+            if (v !== undefined) result[k] = v;
+          }
+          return [result];
+        }
         const val = env.vars.get(node.name);
         if (val === undefined) throw new JqRuntimeError(`Undefined variable: ${node.name}`);
         return [val];
@@ -790,7 +798,11 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot flatten ${jqType(input)}`);
         if (depth) {
           const depthFn = compile(depth[0]!, env);
-          return depthFn(input).map((d) => flattenArray(input, d as number));
+          return depthFn(input).map((d) => {
+            if (typeof d === "number" && d < 0)
+              throw new JqRuntimeError("flatten depth must not be negative");
+            return flattenArray(input, d as number);
+          });
         }
         return [flattenArray(input, Infinity)];
       };
@@ -863,13 +875,13 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
     case "ascii_downcase":
       return (input) => {
         if (typeof input !== "string") throw new JqRuntimeError(`Cannot downcase ${jqType(input)}`);
-        return [input.toLowerCase()];
+        return [input.replace(/[A-Z]/g, (c) => c.toLowerCase())];
       };
 
     case "ascii_upcase":
       return (input) => {
         if (typeof input !== "string") throw new JqRuntimeError(`Cannot upcase ${jqType(input)}`);
-        return [input.toUpperCase()];
+        return [input.replace(/[a-z]/g, (c) => c.toUpperCase())];
       };
 
     case "ltrimstr": {
@@ -1724,6 +1736,118 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
     case "inputs":
       throw new JqRuntimeError(`${name} is not supported in jq-js`);
 
+    case "bsearch": {
+      if (args.length !== 1) throw new JqRuntimeError("bsearch/1 requires 1 argument");
+      const targetFn = compile(args[0]!, env);
+      return (input) => {
+        if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot bsearch ${jqType(input)}`);
+        return targetFn(input).map((target) => {
+          let lo = 0;
+          let hi = input.length - 1;
+          while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            const cmp = jqCompare(input[mid]!, target);
+            if (cmp === 0) return mid;
+            if (cmp < 0) lo = mid + 1;
+            else hi = mid - 1;
+          }
+          return -(lo + 1);
+        });
+      };
+    }
+
+    case "transpose":
+      return (input) => {
+        if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot transpose ${jqType(input)}`);
+        const maxLen = input.reduce((max: number, row) => {
+          if (!Array.isArray(row)) throw new JqRuntimeError(`Cannot transpose non-array element`);
+          return Math.max(max, row.length);
+        }, 0);
+        const result: JsonValue[][] = [];
+        for (let i = 0; i < maxLen; i++) {
+          const col: JsonValue[] = [];
+          for (const row of input) {
+            col.push(Array.isArray(row) && i < row.length ? (row[i] as JsonValue) : null);
+          }
+          result.push(col);
+        }
+        return [result];
+      };
+
+    case "INDEX": {
+      if (args.length === 1) {
+        // INDEX(expr): input is array, create object keyed by expr
+        const keyFn = compile(args[0]!, env);
+        return (input) => {
+          if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot INDEX ${jqType(input)}`);
+          const result: Record<string, JsonValue> = {};
+          for (const item of input) {
+            for (const key of keyFn(item)) {
+              result[String(key)] = item;
+            }
+          }
+          return [result];
+        };
+      }
+      if (args.length === 2) {
+        // INDEX(stream; expr): stream generates values, expr generates keys
+        const streamFn = compile(args[0]!, env);
+        const keyFn = compile(args[1]!, env);
+        return (input) => {
+          const result: Record<string, JsonValue> = {};
+          for (const item of streamFn(input)) {
+            for (const key of keyFn(item)) {
+              result[String(key)] = item;
+            }
+          }
+          return [result];
+        };
+      }
+      throw new JqRuntimeError("INDEX requires 1 or 2 arguments");
+    }
+
+    case "IN": {
+      if (args.length === 1) {
+        // IN(stream): check if input is in stream's outputs
+        const streamFn = compile(args[0]!, env);
+        return (input) => {
+          for (const val of streamFn(input)) {
+            if (jqCompare(input, val) === 0) return [true];
+          }
+          return [false];
+        };
+      }
+      if (args.length === 2) {
+        // IN(s; stream): for each output of s, check membership in stream
+        const sFn = compile(args[0]!, env);
+        const streamFn = compile(args[1]!, env);
+        return (input) => {
+          const results: JsonValue[] = [];
+          for (const sVal of sFn(input)) {
+            let found = false;
+            for (const streamVal of streamFn(input)) {
+              if (jqCompare(sVal, streamVal) === 0) {
+                found = true;
+                break;
+              }
+            }
+            results.push(found);
+          }
+          return results;
+        };
+      }
+      throw new JqRuntimeError("IN requires 1 or 2 arguments");
+    }
+
+    case "env":
+      return () => {
+        const result: Record<string, JsonValue> = {};
+        for (const [k, v] of Object.entries(process.env)) {
+          if (v !== undefined) result[k] = v;
+        }
+        return [result];
+      };
+
     default:
       throw new JqRuntimeError(`Unknown function: ${name}`);
   }
@@ -2280,6 +2404,11 @@ const BUILTIN_NAMES = [
   "@uri",
   "@text",
   "@sh",
+  "bsearch",
+  "transpose",
+  "INDEX",
+  "IN",
+  "env",
 ];
 
 // --- Regex helpers ---
