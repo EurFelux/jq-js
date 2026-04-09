@@ -54,8 +54,5 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "dependencies": {
-    "picocolors": "^1.1.1"
   }
 }
