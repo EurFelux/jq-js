@@ -1,0 +1,3 @@
+[submodule "ref-jq"]
+	path = ref-jq
+	url = https://github.com/jqlang/jq.git
