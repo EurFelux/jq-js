@@ -48,9 +48,18 @@ export enum TokenType {
   // Alternative
   Alternative,
 
+  // Keywords (additional)
+  As,
+  Def,
+  Reduce,
+  Foreach,
+  Label,
+  Break,
+
   // Special
   Recurse,
   Ident,
+  Variable,
   EOF,
 }
 

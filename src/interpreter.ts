@@ -1,11 +1,31 @@
-import type { AstNode } from './ast.js';
+import type { AstNode, BindingPattern } from './ast.js';
 import { JqRuntimeError } from './errors.js';
 import { logDebug } from './logger.js';
 import type { JsonValue } from './types.js';
 
 type Filter = (input: JsonValue) => JsonValue[];
 
-export function compile(node: AstNode): Filter {
+interface Env {
+  vars: Map<string, JsonValue>;
+  funcs: Map<string, { params: string[]; body: AstNode; closure: Env }>;
+}
+
+function emptyEnv(): Env {
+  return { vars: new Map(), funcs: new Map() };
+}
+
+function extendEnv(parent: Env): Env {
+  return {
+    vars: new Map(parent.vars),
+    funcs: new Map(parent.funcs),
+  };
+}
+
+class BreakSignal {
+  constructor(public label: string) {}
+}
+
+export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
   switch (node.kind) {
     case 'identity':
       return (input) => [input];
@@ -19,7 +39,7 @@ export function compile(node: AstNode): Filter {
       };
 
     case 'index': {
-      const indexFn = compile(node.index);
+      const indexFn = compile(node.index, env);
       return (input) => {
         const indices = indexFn(input);
         return indices.flatMap((idx) => {
@@ -47,8 +67,8 @@ export function compile(node: AstNode): Filter {
           throw new JqRuntimeError(`Cannot slice ${jqType(input)}`);
         }
         const len = input.length;
-        const fromResults = node.from ? compile(node.from)(input) : [0];
-        const toResults = node.to ? compile(node.to)(input) : [len];
+        const fromResults = node.from ? compile(node.from, env)(input) : [0];
+        const toResults = node.to ? compile(node.to, env)(input) : [len];
         return fromResults.flatMap((f) =>
           toResults.map((t) => {
             const from = normalizeIndex(f as number, len);
@@ -66,14 +86,14 @@ export function compile(node: AstNode): Filter {
       };
 
     case 'pipe': {
-      const leftFn = compile(node.left);
-      const rightFn = compile(node.right);
+      const leftFn = compile(node.left, env);
+      const rightFn = compile(node.right, env);
       return (input) => leftFn(input).flatMap(rightFn);
     }
 
     case 'comma': {
-      const leftFn = compile(node.left);
-      const rightFn = compile(node.right);
+      const leftFn = compile(node.left, env);
+      const rightFn = compile(node.right, env);
       return (input) => [...leftFn(input), ...rightFn(input)];
     }
 
@@ -82,16 +102,16 @@ export function compile(node: AstNode): Filter {
 
     case 'array': {
       if (node.expr === null) return () => [[]];
-      const exprFn = compile(node.expr);
+      const exprFn = compile(node.expr, env);
       return (input) => [exprFn(input)];
     }
 
     case 'object': {
       const compiledEntries = node.entries.map((entry) => ({
-        key: compile(entry.key),
+        key: compile(entry.key, env),
         value: entry.value
-          ? compile(entry.value)
-          : compile({ kind: 'field', name: (entry.key as { value: string }).value as string, pos: entry.key.pos }),
+          ? compile(entry.value, env)
+          : compile({ kind: 'field', name: (entry.key as { value: string }).value as string, pos: entry.key.pos }, env),
       }));
       return (input) => {
         let results: JsonValue[] = [{}];
@@ -113,9 +133,9 @@ export function compile(node: AstNode): Filter {
     }
 
     case 'condition': {
-      const condFn = compile(node.condition);
-      const thenFn = compile(node.then);
-      const elifFns = node.elifs.map((e) => ({ cond: compile(e.condition), then: compile(e.then) }));
+      const condFn = compile(node.condition, env);
+      const thenFn = compile(node.then, env);
+      const elifFns = node.elifs.map((e) => ({ cond: compile(e.condition, env), then: compile(e.then, env) }));
       const elseFn = node.else_ ? compile(node.else_) : null;
       return (input) => {
         const condResult = condFn(input);
@@ -129,10 +149,10 @@ export function compile(node: AstNode): Filter {
     }
 
     case 'func':
-      return compileBuiltin(node.name, node.args, node.pos);
+      return compileBuiltin(node.name, node.args, node.pos, env);
 
     case 'try': {
-      const exprFn = compile(node.expr);
+      const exprFn = compile(node.expr, env);
       const catchFn = node.catch_ ? compile(node.catch_) : null;
       return (input) => {
         try {
@@ -148,8 +168,8 @@ export function compile(node: AstNode): Filter {
     }
 
     case 'arith': {
-      const leftFn = compile(node.left);
-      const rightFn = compile(node.right);
+      const leftFn = compile(node.left, env);
+      const rightFn = compile(node.right, env);
       return (input) =>
         leftFn(input).flatMap((l) =>
           rightFn(input).map((r) => applyArith(node.op, l, r)),
@@ -157,8 +177,8 @@ export function compile(node: AstNode): Filter {
     }
 
     case 'compare': {
-      const leftFn = compile(node.left);
-      const rightFn = compile(node.right);
+      const leftFn = compile(node.left, env);
+      const rightFn = compile(node.right, env);
       return (input) =>
         leftFn(input).flatMap((l) =>
           rightFn(input).map((r) => applyCompare(node.op, l, r)),
@@ -166,8 +186,8 @@ export function compile(node: AstNode): Filter {
     }
 
     case 'logic': {
-      const leftFn = compile(node.left);
-      const rightFn = compile(node.right);
+      const leftFn = compile(node.left, env);
+      const rightFn = compile(node.right, env);
       return (input) => {
         if (node.op === 'and') {
           return leftFn(input).flatMap((l) =>
@@ -181,12 +201,12 @@ export function compile(node: AstNode): Filter {
     }
 
     case 'not': {
-      const exprFn = compile(node.expr);
+      const exprFn = compile(node.expr, env);
       return (input) => exprFn(input).map((v) => !isTruthy(v) as JsonValue);
     }
 
     case 'negate': {
-      const exprFn = compile(node.expr);
+      const exprFn = compile(node.expr, env);
       return (input) =>
         exprFn(input).map((v) => {
           if (typeof v !== 'number') throw new JqRuntimeError(`Cannot negate ${jqType(v)}`);
@@ -210,7 +230,7 @@ export function compile(node: AstNode): Filter {
       };
 
     case 'optional': {
-      const exprFn = compile(node.expr);
+      const exprFn = compile(node.expr, env);
       return (input) => {
         try {
           return exprFn(input);
@@ -221,8 +241,8 @@ export function compile(node: AstNode): Filter {
     }
 
     case 'alternative': {
-      const leftFn = compile(node.left);
-      const rightFn = compile(node.right);
+      const leftFn = compile(node.left, env);
+      const rightFn = compile(node.right, env);
       return (input) => {
         const results = leftFn(input).filter((v) => v !== null && v !== false);
         return results.length > 0 ? results : rightFn(input);
@@ -231,7 +251,7 @@ export function compile(node: AstNode): Filter {
 
     case 'string_interpolation': {
       const compiledParts = node.parts.map((p) =>
-        typeof p === 'string' ? p : compile(p),
+        typeof p === 'string' ? p : compile(p, env),
       );
       return (input) => {
         let results: string[] = [''];
@@ -252,10 +272,147 @@ export function compile(node: AstNode): Filter {
         return results;
       };
     }
+
+    case 'var_ref':
+      return (_input) => {
+        const val = env.vars.get(node.name);
+        if (val === undefined) throw new JqRuntimeError(`Undefined variable: ${node.name}`);
+        return [val];
+      };
+
+    case 'as': {
+      const exprFn = compile(node.expr, env);
+      return (input) => {
+        const values = exprFn(input);
+        return values.flatMap((val) => {
+          const newEnv = extendEnv(env);
+          bindPattern(newEnv, node.pattern, val);
+          return compile(node.body, newEnv)(input);
+        });
+      };
+    }
+
+    case 'reduce': {
+      const exprFn = compile(node.expr, env);
+      return (input) => {
+        const initFn = compile(node.init, env);
+        let acc = initFn(input)[0] ?? null;
+        const values = exprFn(input);
+        for (const val of values) {
+          const newEnv = extendEnv(env);
+          bindPattern(newEnv, node.pattern, val);
+          const updateFn = compile(node.update, newEnv);
+          acc = updateFn(acc)[0] ?? null;
+        }
+        return [acc];
+      };
+    }
+
+    case 'foreach': {
+      const exprFn = compile(node.expr, env);
+      return (input) => {
+        const initFn = compile(node.init, env);
+        let acc = initFn(input)[0] ?? null;
+        const values = exprFn(input);
+        const results: JsonValue[] = [];
+        for (const val of values) {
+          const newEnv = extendEnv(env);
+          bindPattern(newEnv, node.pattern, val);
+          const updateFn = compile(node.update, newEnv);
+          acc = updateFn(acc)[0] ?? null;
+          if (node.extract) {
+            const extractFn = compile(node.extract, newEnv);
+            results.push(...extractFn(acc));
+          } else {
+            results.push(acc);
+          }
+        }
+        return results;
+      };
+    }
+
+    case 'label': {
+      return (input) => {
+        const bodyFn = compile(node.body, env);
+        try {
+          return bodyFn(input);
+        } catch (e) {
+          if (e instanceof BreakSignal && e.label === node.name) {
+            return [];
+          }
+          throw e;
+        }
+      };
+    }
+
+    case 'break':
+      return (_input) => {
+        throw new BreakSignal(node.name);
+      };
+
+    case 'def': {
+      const newEnv = extendEnv(env);
+      newEnv.funcs.set(node.name, { params: node.params, body: node.body, closure: newEnv });
+      return compile(node.next, newEnv);
+    }
   }
 }
 
-function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
+function bindPattern(env: Env, pattern: BindingPattern, value: JsonValue): void {
+  switch (pattern.type) {
+    case 'variable':
+      env.vars.set(pattern.name, value);
+      break;
+    case 'array': {
+      const arr = Array.isArray(value) ? value : [];
+      for (let i = 0; i < pattern.elements.length; i++) {
+        bindPattern(env, pattern.elements[i]!, arr[i] ?? null);
+      }
+      break;
+    }
+    case 'object': {
+      const obj = (value !== null && typeof value === 'object' && !Array.isArray(value))
+        ? value as Record<string, JsonValue>
+        : {};
+      for (const entry of pattern.entries) {
+        // Evaluate the key expression to get the actual key string
+        const keyNode = entry.key;
+        let keyStr: string;
+        if (keyNode.kind === 'literal' && typeof keyNode.value === 'string') {
+          keyStr = keyNode.value;
+        } else {
+          // For computed keys, compile and evaluate
+          const keyFn = compile(keyNode, env);
+          const keyResult = keyFn(value);
+          keyStr = String(keyResult[0]);
+        }
+        bindPattern(env, entry.pattern, obj[keyStr] ?? null);
+      }
+      break;
+    }
+  }
+}
+
+function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): Filter {
+  // Check user-defined functions first
+  const userFunc = env.funcs.get(name);
+  if (userFunc) {
+    return (input) => {
+      const funcEnv = extendEnv(userFunc.closure);
+      // Bind filter arguments
+      for (let i = 0; i < userFunc.params.length; i++) {
+        const paramName = userFunc.params[i]!;
+        const argNode = args[i];
+        if (argNode) {
+          // Filter arguments: the argument is a filter, not a value
+          // We need to compile it in the caller's env and bind as a function
+          funcEnv.funcs.set(paramName, { params: [], body: argNode, closure: env });
+        }
+      }
+      return compile(userFunc.body, funcEnv)(input);
+    };
+  }
+
   switch (name) {
     case 'length':
       return (input) => {
@@ -290,7 +447,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'has': {
       if (args.length !== 1) throw new JqRuntimeError('has/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) =>
         argFn(input).map((key) => {
           if (Array.isArray(input) && typeof key === 'number') {
@@ -305,7 +462,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'map': {
       if (args.length !== 1) throw new JqRuntimeError('map/1 requires 1 argument');
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot map over ${jqType(input)}`);
         return [input.flatMap(fn)];
@@ -314,7 +471,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'select': {
       if (args.length !== 1) throw new JqRuntimeError('select/1 requires 1 argument');
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         const result = fn(input);
         return isTruthy(result[0]) ? [input] : [];
@@ -333,7 +490,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
         };
       }
       // add(f) — collect outputs of f and add them
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         const items = fn(input);
         if (items.length === 0) return [null];
@@ -348,7 +505,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
           return [input.some(isTruthy)];
         };
       }
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot any over ${jqType(input)}`);
         return [input.some((item) => fn(item).some(isTruthy))];
@@ -362,7 +519,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
           return [input.every(isTruthy)];
         };
       }
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot all over ${jqType(input)}`);
         return [input.every((item) => fn(item).some(isTruthy))];
@@ -374,7 +531,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot flatten ${jqType(input)}`);
         if (depth) {
-          const depthFn = compile(depth[0]!);
+          const depthFn = compile(depth[0]!, env);
           return depthFn(input).map((d) => flattenArray(input, d as number));
         }
         return [flattenArray(input, Infinity)];
@@ -383,7 +540,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'range': {
       if (args.length === 1) {
-        const upperFn = compile(args[0]!);
+        const upperFn = compile(args[0]!, env);
         return (input) => {
           const results: JsonValue[] = [];
           for (const u of upperFn(input)) {
@@ -393,8 +550,8 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
         };
       }
       if (args.length === 2) {
-        const fromFn = compile(args[0]!);
-        const toFn = compile(args[1]!);
+        const fromFn = compile(args[0]!, env);
+        const toFn = compile(args[1]!, env);
         return (input) => {
           const results: JsonValue[] = [];
           for (const f of fromFn(input)) {
@@ -406,9 +563,9 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
         };
       }
       if (args.length === 3) {
-        const fromFn = compile(args[0]!);
-        const toFn = compile(args[1]!);
-        const stepFn = compile(args[2]!);
+        const fromFn = compile(args[0]!, env);
+        const toFn = compile(args[1]!, env);
+        const stepFn = compile(args[2]!, env);
         return (input) => {
           const results: JsonValue[] = [];
           for (const f of fromFn(input)) {
@@ -457,7 +614,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'ltrimstr': {
       if (args.length !== 1) throw new JqRuntimeError('ltrimstr/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) => {
         if (typeof input !== 'string') return [input];
         return argFn(input).map((prefix) => {
@@ -471,7 +628,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'rtrimstr': {
       if (args.length !== 1) throw new JqRuntimeError('rtrimstr/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) => {
         if (typeof input !== 'string') return [input];
         return argFn(input).map((suffix) => {
@@ -485,7 +642,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'split': {
       if (args.length !== 1) throw new JqRuntimeError('split/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) => {
         if (typeof input !== 'string') throw new JqRuntimeError(`Cannot split ${jqType(input)}`);
         return argFn(input).map((sep) => {
@@ -497,7 +654,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'join': {
       if (args.length !== 1) throw new JqRuntimeError('join/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot join ${jqType(input)}`);
         return argFn(input).map((sep) => {
@@ -509,7 +666,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'test': {
       if (args.length < 1) throw new JqRuntimeError('test requires at least 1 argument');
-      const patternFn = compile(args[0]!);
+      const patternFn = compile(args[0]!, env);
       const flagsFn = args.length > 1 ? compile(args[1]!) : null;
       return (input) => {
         if (typeof input !== 'string') throw new JqRuntimeError(`Cannot test ${jqType(input)}`);
@@ -522,7 +679,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'contains': {
       if (args.length !== 1) throw new JqRuntimeError('contains/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) => argFn(input).map((other) => jsonContains(input, other));
     }
 
@@ -544,7 +701,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
           throw new JqRuntimeError(typeof input === 'string' ? input : JSON.stringify(input));
         };
       }
-      const msgFn = compile(args[0]!);
+      const msgFn = compile(args[0]!, env);
       return (input) => {
         const msgs = msgFn(input);
         throw new JqRuntimeError(typeof msgs[0] === 'string' ? msgs[0] : JSON.stringify(msgs[0]));
@@ -558,7 +715,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
           return [input];
         };
       }
-      const labelFn = compile(args[0]!);
+      const labelFn = compile(args[0]!, env);
       return (input) => {
         for (const label of labelFn(input)) {
           logDebug(JSON.stringify(input), jsonToString(label));
@@ -569,7 +726,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'first': {
       if (args.length === 1) {
-        const fn = compile(args[0]!);
+        const fn = compile(args[0]!, env);
         return (input) => {
           const results = fn(input);
           return results.length > 0 ? [results[0]!] : [];
@@ -583,7 +740,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'last': {
       if (args.length === 1) {
-        const fn = compile(args[0]!);
+        const fn = compile(args[0]!, env);
         return (input) => {
           const results = fn(input);
           return results.length > 0 ? [results[results.length - 1]!] : [];
@@ -597,8 +754,8 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'limit': {
       if (args.length !== 2) throw new JqRuntimeError('limit/2 requires 2 arguments');
-      const nFn = compile(args[0]!);
-      const exprFn = compile(args[1]!);
+      const nFn = compile(args[0]!, env);
+      const exprFn = compile(args[1]!, env);
       return (input) => {
         const ns = nFn(input);
         const n = ns[0] as number;
@@ -608,15 +765,15 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'nth': {
       if (args.length === 1) {
-        const nFn = compile(args[0]!);
+        const nFn = compile(args[0]!, env);
         return (input) => {
           if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot nth ${jqType(input)}`);
           return nFn(input).map((n) => input[n as number] ?? null);
         };
       }
       if (args.length === 2) {
-        const nFn = compile(args[0]!);
-        const exprFn = compile(args[1]!);
+        const nFn = compile(args[0]!, env);
+        const exprFn = compile(args[1]!, env);
         return (input) => {
           const ns = nFn(input);
           const n = ns[0] as number;
@@ -642,7 +799,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'sort_by': {
       if (args.length !== 1) throw new JqRuntimeError('sort_by/1 requires 1 argument');
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot sort ${jqType(input)}`);
         const decorated = input.map((item) => ({ item, key: fn(item)[0] }));
@@ -653,7 +810,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'group_by': {
       if (args.length !== 1) throw new JqRuntimeError('group_by/1 requires 1 argument');
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot group ${jqType(input)}`);
         const groups = new Map<string, JsonValue[]>();
@@ -684,7 +841,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'unique_by': {
       if (args.length !== 1) throw new JqRuntimeError('unique_by/1 requires 1 argument');
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot unique ${jqType(input)}`);
         const seen = new Set<string>();
@@ -714,7 +871,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'min_by': {
       if (args.length !== 1) throw new JqRuntimeError('min_by/1 requires 1 argument');
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input) || input.length === 0) return [null];
         return [input.reduce((a, b) => (jqCompare(fn(a)[0]!, fn(b)[0]!) <= 0 ? a : b))];
@@ -723,7 +880,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'max_by': {
       if (args.length !== 1) throw new JqRuntimeError('max_by/1 requires 1 argument');
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input) || input.length === 0) return [null];
         return [input.reduce((a, b) => (jqCompare(fn(a)[0]!, fn(b)[0]!) >= 0 ? a : b))];
@@ -754,7 +911,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'with_entries': {
       if (args.length !== 1) throw new JqRuntimeError('with_entries/1 requires 1 argument');
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         if (input === null || typeof input !== 'object' || Array.isArray(input)) {
           throw new JqRuntimeError(`Cannot with_entries on ${jqType(input)}`);
@@ -775,7 +932,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'map_values': {
       if (args.length !== 1) throw new JqRuntimeError('map_values/1 requires 1 argument');
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         if (Array.isArray(input)) {
           return [input.map((v) => fn(v)[0] ?? null)];
@@ -831,7 +988,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'startswith': {
       if (args.length !== 1) throw new JqRuntimeError('startswith/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) => {
         if (typeof input !== 'string') throw new JqRuntimeError(`startswith requires string input`);
         return argFn(input).map((s) => {
@@ -843,7 +1000,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'endswith': {
       if (args.length !== 1) throw new JqRuntimeError('endswith/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) => {
         if (typeof input !== 'string') throw new JqRuntimeError(`endswith requires string input`);
         return argFn(input).map((s) => {
@@ -855,13 +1012,13 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'inside': {
       if (args.length !== 1) throw new JqRuntimeError('inside/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) => argFn(input).map((other) => jsonContains(other, input));
     }
 
     case 'index': {
       if (args.length !== 1) throw new JqRuntimeError('index/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) => argFn(input).map((s) => {
         if (typeof input === 'string' && typeof s === 'string') {
           const idx = input.indexOf(s);
@@ -887,7 +1044,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'rindex': {
       if (args.length !== 1) throw new JqRuntimeError('rindex/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) => argFn(input).map((s) => {
         if (typeof input === 'string' && typeof s === 'string') {
           const idx = input.lastIndexOf(s);
@@ -915,7 +1072,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'indices': {
       if (args.length !== 1) throw new JqRuntimeError('indices/1 requires 1 argument');
-      const argFn = compile(args[0]!);
+      const argFn = compile(args[0]!, env);
       return (input) => argFn(input).map((s) => {
         const result: number[] = [];
         if (typeof input === 'string' && typeof s === 'string') {
@@ -956,7 +1113,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'walk': {
       if (args.length !== 1) throw new JqRuntimeError('walk/1 requires 1 argument');
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         const walkInner = (v: JsonValue): JsonValue => {
           if (Array.isArray(v)) {
@@ -989,7 +1146,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
           return results;
         };
       }
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       const condFn = args.length > 1 ? compile(args[1]!) : null;
       return (input) => {
         const results: JsonValue[] = [];
@@ -1017,8 +1174,8 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'until': {
       if (args.length !== 2) throw new JqRuntimeError('until/2 requires 2 arguments');
-      const condFn = compile(args[0]!);
-      const updateFn = compile(args[1]!);
+      const condFn = compile(args[0]!, env);
+      const updateFn = compile(args[1]!, env);
       return (input) => {
         let current = input;
         for (let i = 0; i < 10000; i++) {
@@ -1031,8 +1188,8 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'while': {
       if (args.length !== 2) throw new JqRuntimeError('while/2 requires 2 arguments');
-      const condFn = compile(args[0]!);
-      const updateFn = compile(args[1]!);
+      const condFn = compile(args[0]!, env);
+      const updateFn = compile(args[1]!, env);
       return (input) => {
         const results: JsonValue[] = [];
         let current = input;
@@ -1047,7 +1204,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'repeat': {
       if (args.length !== 1) throw new JqRuntimeError('repeat/1 requires 1 argument');
-      const fn = compile(args[0]!);
+      const fn = compile(args[0]!, env);
       return (input) => {
         const results: JsonValue[] = [];
         let current = input;
@@ -1067,7 +1224,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'getpath': {
       if (args.length !== 1) throw new JqRuntimeError('getpath/1 requires 1 argument');
-      const pathFn = compile(args[0]!);
+      const pathFn = compile(args[0]!, env);
       return (input) => pathFn(input).map((p) => {
         if (!Array.isArray(p)) throw new JqRuntimeError('Path must be an array');
         return getPath(input, p);
@@ -1076,8 +1233,8 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'setpath': {
       if (args.length !== 2) throw new JqRuntimeError('setpath/2 requires 2 arguments');
-      const pathFn = compile(args[0]!);
-      const valFn = compile(args[1]!);
+      const pathFn = compile(args[0]!, env);
+      const valFn = compile(args[1]!, env);
       return (input) =>
         pathFn(input).flatMap((p) =>
           valFn(input).map((v) => {
@@ -1089,7 +1246,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
 
     case 'delpaths': {
       if (args.length !== 1) throw new JqRuntimeError('delpaths/1 requires 1 argument');
-      const pathsFn = compile(args[0]!);
+      const pathsFn = compile(args[0]!, env);
       return (input) => pathsFn(input).map((paths) => {
         if (!Array.isArray(paths)) throw new JqRuntimeError('delpaths argument must be an array of paths');
         let result = input;
@@ -1106,7 +1263,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
       if (args.length !== 1) throw new JqRuntimeError('path/1 requires 1 argument');
       // path(expr) returns the paths to each output of expr
       // This is a simplified implementation
-      const exprFn = compile(args[0]!);
+      const exprFn = compile(args[0]!, env);
       return (input) => {
         const paths: JsonValue[] = [];
         collectPaths(input, args[0]!, paths);
