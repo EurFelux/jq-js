@@ -12,6 +12,8 @@
 - **env / $ENV**: Access environment variables (#36)
 - **$__loc__**: Source location special variable (#36)
 - **Date/time builtins**: `now`, `gmtime`, `mktime`, `strftime`, `strptime`, `todate`/`date`, `fromdate`, `dateadd`, `datesub` (#35)
+- **Try-alternative operator** (`?//`): catches errors and handles empty output, unlike `//` which only handles null/false (#38)
+- **Pattern alternatives in `as` bindings**: `expr as pattern1 ?// pattern2 | body` tries each destructuring pattern in order
 
 ### Bug Fixes
 

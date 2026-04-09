@@ -45,9 +45,13 @@ class Parser {
     while (true) {
       if (this.match(TokenType.As)) {
         const pattern = this.parsePattern();
+        const alternativePatterns: import("./ast.js").BindingPattern[] = [];
+        while (this.match(TokenType.TryAlternative)) {
+          alternativePatterns.push(this.parsePattern());
+        }
         this.expect(TokenType.Pipe);
         const body = this.parsePipe();
-        left = { kind: "as", expr: left, pattern, body, pos: left.pos };
+        left = { kind: "as", expr: left, pattern, alternativePatterns, body, pos: left.pos };
       } else if (this.match(TokenType.Pipe)) {
         const right = this.parseComma();
         left = { kind: "pipe", left, right, pos: left.pos };
@@ -156,12 +160,19 @@ class Parser {
     return left;
   }
 
-  // alternative = logic ("//" logic)*
+  // alternative = logic (("//" | "?//") logic)*
   private parseAlternative(): AstNode {
     let left = this.parseLogic();
-    while (this.match(TokenType.Alternative)) {
-      const right = this.parseLogic();
-      left = { kind: "alternative", left, right, pos: left.pos };
+    while (true) {
+      if (this.match(TokenType.Alternative)) {
+        const right = this.parseLogic();
+        left = { kind: "alternative", left, right, pos: left.pos };
+      } else if (this.match(TokenType.TryAlternative)) {
+        const right = this.parseLogic();
+        left = { kind: "try_alternative", left, right, pos: left.pos };
+      } else {
+        break;
+      }
     }
     return left;
   }
