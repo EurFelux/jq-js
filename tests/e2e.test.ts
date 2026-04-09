@@ -154,7 +154,12 @@ describe("jq-js e2e", () => {
     });
 
     test("values", () => {
-      expect(jq("values", { a: 1, b: 2 })).toEqual([[1, 2]]);
+      // values as type selector: passes through non-null values
+      expect(jq("values", { a: 1, b: 2 })).toEqual([{ a: 1, b: 2 }]);
+      expect(jq("values", null)).toEqual([]);
+      expect(jq("values", 42)).toEqual([42]);
+      // To get object values, use [.[]]
+      expect(jq("[.[]]", { a: 1, b: 2 })).toEqual([[1, 2]]);
     });
 
     test("type", () => {
@@ -372,7 +377,7 @@ describe("jq-js e2e", () => {
     ],
     ["2 | IN(range(3))", null, [true]],
     ["5 | IN(range(3))", null, [false]],
-    ["$__loc__", null, [{ file: "<stdin>", line: 1 }]],
+    ["$__loc__", null, [{ file: "<top-level>", line: 1 }]],
   ])("small builtins: jq(%j, %j) = %j", (filter, input, expected) => {
     expect(jq(filter, input)).toEqual(expected);
   });
@@ -434,9 +439,9 @@ describe("jq-js e2e", () => {
   // Date/time functions
   test.each([
     ["now | . > 0", null, [true]],
-    ["0 | gmtime", null, [[0, 0, 0, 1, 0, 70, 4, 0]]],
-    ["1 | gmtime", null, [[1, 0, 0, 1, 0, 70, 4, 0]]],
-    ["86400 | gmtime", null, [[0, 0, 0, 2, 0, 70, 5, 1]]],
+    ["0 | gmtime", null, [[1970, 0, 1, 0, 0, 0, 4, 0]]],
+    ["1 | gmtime", null, [[1970, 0, 1, 0, 0, 1, 4, 0]]],
+    ["86400 | gmtime", null, [[1970, 0, 2, 0, 0, 0, 5, 1]]],
     ["0 | todate", null, ["1970-01-01T00:00:00Z"]],
     ["0 | date", null, ["1970-01-01T00:00:00Z"]],
     ['"1970-01-01T00:00:00Z" | fromdate', null, [0]],
@@ -446,8 +451,8 @@ describe("jq-js e2e", () => {
     ['0 | strftime("%a %A")', null, ["Thu Thursday"]],
     ['0 | strftime("%b %B")', null, ["Jan January"]],
     ['0 | strftime("%%")', null, ["%"]],
-    ["[0,0,0,1,0,100,0,0] | mktime", null, [946684800]],
-    ["946684800 | gmtime", null, [[0, 0, 0, 1, 0, 100, 6, 0]]],
+    ["[2000,0,1,0,0,0,0,0] | mktime", null, [946684800]],
+    ["946684800 | gmtime", null, [[2000, 0, 1, 0, 0, 0, 6, 0]]],
     ['0 | dateadd("seconds"; 60)', null, [60]],
     ['0 | dateadd("minutes"; 1)', null, [60]],
     ['0 | dateadd("hours"; 1)', null, [3600]],

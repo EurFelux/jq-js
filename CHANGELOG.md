@@ -2,8 +2,29 @@
 
 ## Unreleased
 
+### Bug Fixes
+
+- **Date/time format**: Fix broken-down time array format to `[year, month, mday, hour, min, sec, wday, yday]` matching jq behavior (previously used C struct tm order)
+- **sort_by**: Support multiple sort keys (`sort_by(.a, .b)`)
+- **group_by**: Sort groups by key value (matching jq behavior)
+- **Float indexing**: Fix `.[1.2:3.5]` slice with float indices, `.[1.1] = 5` update with float index, `.[nan]` returns null
+- **Label/break**: Fix result accumulation so `break` preserves already-emitted values
+- **String operations**: Fix `index("")` returns null, `indices` with emoji/surrogate pairs uses codepoint indices
+- **Error messages**: Fix modulo-by-zero, bsearch, strftime, negate, join error messages to match jq
+- **implode**: Handle invalid codepoints (negative, >0x10ffff, surrogates) with U+FFFD replacement
+- **Format strings**: Fix `@html` to use `&apos;`/`&quot;`, fix `@uri` to encode all non-unreserved characters
+- **tonumber**: Reject strings with leading/trailing whitespace
+- **Slice assignment**: `.[2:4] = ([], [...])` now produces multiple outputs
+- **walk**: Support multiple outputs from walk function
+- **splits**: Fix empty pattern to include leading/trailing empty strings
+- **foreach**: Preserve accumulated results through BreakSignal
+- **Postfix bracket**: Fix `X[Y]` to evaluate `Y` on original input (not X's output)
+- **input/inputs**: Return "break" error instead of compile-time error
+
 ### Features
 
+- **New builtins**: `toboolean`, `skip/2`, `pick/1`, `trim`, `ltrim`, `rtrim`, `trimstr/1`, `fabs`, `isempty/1`, `strflocaltime/1`, `modulemeta` (stub), `@urid` format (#36)
+- **`values` type selector**: `values` now acts as a type selector (passes non-null, filters null) matching jq 1.7+ behavior
 - **Format strings**: `@base64`, `@base64d`, `@html`, `@csv`, `@tsv`, `@json`, `@uri`, `@text`, `@sh` with string interpolation support (#5)
 - **bsearch**: Binary search on sorted arrays (#36)
 - **transpose**: Matrix transpose with null padding (#36)
@@ -21,6 +42,15 @@
 
 ### Bug Fixes
 
+- **rtrimstr**: Fix `rtrimstr("")` incorrectly emptying strings (#36)
+- **ltrimstr/rtrimstr**: Error on non-string inputs matching jq behavior (#36)
+- **Keywords as object keys**: Allow keyword tokens (`if`, `and`, `or`, `as`, `try`, `catch`, etc.) as object keys in both shorthand `{as}` and `key: value` forms (#32)
+- **Keywords in destructuring**: Accept keyword tokens as keys in destructuring patterns (e.g., `. as {as: $kw} | $kw`) (#32)
+- **String shorthand in objects**: Support `{"str"}` and `{"str\(expr)"}` shorthand syntax in object construction (#32)
+- **`-reduce` / `-foreach`**: Parse unary minus before `reduce` and `foreach` expressions (#32)
+- **Reduce/foreach expression parsing**: Use full expression parsing (not just postfix) for the source expression, allowing `reduce .[] / .[] as $i (...)` (#32)
+- **`{$var: value}` key evaluation**: Use variable value (not variable name) as key when `$var` is followed by colon in object construction (#32)
+- **`$__loc__`**: Return `"file":"<top-level>"` instead of `"<stdin>"` to match jq behavior (#32)
 - **ascii_downcase/ascii_upcase**: Only affect ASCII letters (a-z, A-Z), not Unicode (#36)
 - **flatten**: Negative depth now correctly throws an error (#36)
 
