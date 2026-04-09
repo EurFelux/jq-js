@@ -4,7 +4,18 @@ A pure TypeScript implementation of [jq](https://jqlang.github.io/jq/), the JSON
 
 ## Why?
 
-Existing jq libraries for JavaScript are either WASM wrappers or call a native binary. None offer a **pure JS implementation with proper ESM support**. jq-js fills that gap.
+| | jq-js | [node-jq](https://github.com/sanack/node-jq) | [jq-wasm](https://github.com/nicolo-ribaudo/jq-wasm) | [jq-web](https://github.com/nicolo-ribaudo/jq-web) | [jsonata](https://github.com/jsonata-js/jsonata) |
+|---|---|---|---|---|---|
+| **Implementation** | Pure TypeScript | Shells out to `jq` binary | WASM (C → Emscripten) | WASM (C → Emscripten) | Pure JavaScript |
+| **jq syntax** | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :x: (own DSL) |
+| **ESM support** | :white_check_mark: `type: "module"` + `exports` | :x: CJS only | :x: No `exports` | :warning: Partial | :warning: No `type: "module"` |
+| **Browser** | :white_check_mark: | :x: Node only | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| **Native deps** | None | Requires `jq` installed | WASM binary (~400KB) | WASM binary | None |
+| **Tree-shakeable** | :white_check_mark: | :x: | :x: | :x: | :x: |
+| **TypeScript** | Written in TS, ships `.d.ts` | `@types/node-jq` | Minimal types | No types | Ships `.d.ts` |
+| **Bundle size** | ~45KB (minified) | N/A (native) | ~400KB (WASM) | ~400KB (WASM) | ~90KB |
+
+jq-js is the only option that combines **real jq syntax**, **pure JS** (no WASM/native), and **proper ESM** with `type: "module"` and conditional `exports`.
 
 ## Install
 
