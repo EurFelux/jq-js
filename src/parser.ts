@@ -352,10 +352,11 @@ class Parser {
     }
 
     this.expect(TokenType.RBracket);
+    const useOriginalInput = left.kind !== "identity";
     return {
       kind: "pipe",
       left,
-      right: { kind: "index", index: indexExpr, pos: bracketPos },
+      right: { kind: "index", index: indexExpr, useOriginalInput, pos: bracketPos },
       pos: left.pos,
     };
   }

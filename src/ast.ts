@@ -49,6 +49,7 @@ export interface FieldAccessNode {
 export interface IndexNode {
   kind: "index";
   index: AstNode;
+  useOriginalInput?: boolean; // When true, index expr evaluates on original input (postfix bracket syntax)
   pos: number;
 }
 
