@@ -5,8 +5,17 @@
 ### Features
 
 - **Format strings**: `@base64`, `@base64d`, `@html`, `@csv`, `@tsv`, `@json`, `@uri`, `@text`, `@sh` with string interpolation support (#5)
+- **bsearch**: Binary search on sorted arrays (#36)
+- **transpose**: Matrix transpose with null padding (#36)
+- **INDEX**: Create objects keyed by expression (`INDEX(expr)` and `INDEX(stream; expr)`) (#36)
+- **IN**: Membership test (`IN(stream)` and `IN(s; stream)`) (#36)
+- **env / $ENV**: Access environment variables (#36)
+- **$__loc__**: Source location special variable (#36)
 
 ### Bug Fixes
+
+- **ascii_downcase/ascii_upcase**: Only affect ASCII letters (a-z, A-Z), not Unicode (#36)
+- **flatten**: Negative depth now correctly throws an error (#36)
 
 - **try/catch**: Preserve original error values through try/catch (not just strings) (#33)
 - **try/catch**: Properly propagate errors per-element in generators via `generateValues` (#33)

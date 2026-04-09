@@ -339,6 +339,61 @@ describe("jq-js e2e", () => {
     expect(jq("-(1 + 2)", null)).toEqual([-3]);
   });
 
+  // Small builtins (#36)
+  test.each([
+    ["[1,2,3] | bsearch(2)", null, [1]],
+    ["[1,2,3] | bsearch(4)", null, [-4]],
+    ["[1,2,3,4,5] | bsearch(3)", null, [2]],
+    ["[1,2,3,4,5] | bsearch(6)", null, [-6]],
+    [
+      "[[1,2],[3,4]] | transpose",
+      null,
+      [
+        [
+          [1, 3],
+          [2, 4],
+        ],
+      ],
+    ],
+    [
+      "[[1,2],[3]] | transpose",
+      null,
+      [
+        [
+          [1, 3],
+          [2, null],
+        ],
+      ],
+    ],
+    [
+      '[{"name":"a","v":1},{"name":"b","v":2}] | INDEX(.name)',
+      null,
+      [{ a: { name: "a", v: 1 }, b: { name: "b", v: 2 } }],
+    ],
+    ["2 | IN(range(3))", null, [true]],
+    ["5 | IN(range(3))", null, [false]],
+    ["$__loc__", null, [{ file: "<stdin>", line: 1 }]],
+  ])("small builtins: jq(%j, %j) = %j", (filter, input, expected) => {
+    expect(jq(filter, input)).toEqual(expected);
+  });
+
+  // ascii_downcase/ascii_upcase should only affect ASCII
+  test("ascii_downcase only affects ASCII letters", () => {
+    expect(jq('"Héllo" | ascii_downcase', null)).toEqual(["héllo"]);
+  });
+
+  test("ascii_upcase only affects ASCII letters", () => {
+    expect(jq('"héllo" | ascii_upcase', null)).toEqual(["HéLLO"]);
+  });
+
+  // flatten with negative depth should error (caught by try/catch in jq)
+  test("flatten with negative depth errors", () => {
+    // Error is caught by top-level error handler, resulting in empty output
+    expect(jq("[[1,2],[3]] | flatten(-1)", null)).toEqual([]);
+    // But in try/catch, the error can be caught
+    expect(jq('[1,[2]] | try flatten(-1) catch "err"', null)).toEqual(["err"]);
+  });
+
   // Optional field access (null returns null, non-object types return empty)
   test("optional on non-object", () => {
     expect(jq(".a?", 42)).toEqual([]);
