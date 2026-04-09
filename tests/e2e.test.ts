@@ -430,4 +430,31 @@ describe("jq-js e2e", () => {
   ])("format: jq(%j, %j) = %j", (filter, input, expected) => {
     expect(jq(filter, input)).toEqual(expected);
   });
+
+  // Date/time functions
+  test.each([
+    ["now | . > 0", null, [true]],
+    ["0 | gmtime", null, [[0, 0, 0, 1, 0, 70, 4, 0]]],
+    ["1 | gmtime", null, [[1, 0, 0, 1, 0, 70, 4, 0]]],
+    ["86400 | gmtime", null, [[0, 0, 0, 2, 0, 70, 5, 1]]],
+    ["0 | todate", null, ["1970-01-01T00:00:00Z"]],
+    ["0 | date", null, ["1970-01-01T00:00:00Z"]],
+    ['"1970-01-01T00:00:00Z" | fromdate', null, [0]],
+    ['"2000-01-01T00:00:00Z" | fromdate', null, [946684800]],
+    ['0 | strftime("%Y-%m-%d")', null, ["1970-01-01"]],
+    ['0 | strftime("%H:%M:%S")', null, ["00:00:00"]],
+    ['0 | strftime("%a %A")', null, ["Thu Thursday"]],
+    ['0 | strftime("%b %B")', null, ["Jan January"]],
+    ['0 | strftime("%%")', null, ["%"]],
+    ["[0,0,0,1,0,100,0,0] | mktime", null, [946684800]],
+    ["946684800 | gmtime", null, [[0, 0, 0, 1, 0, 100, 6, 0]]],
+    ['0 | dateadd("seconds"; 60)', null, [60]],
+    ['0 | dateadd("minutes"; 1)', null, [60]],
+    ['0 | dateadd("hours"; 1)', null, [3600]],
+    ['0 | dateadd("days"; 1)', null, [86400]],
+    ['86400 | datesub("days"; 1)', null, [0]],
+    ['"2020-06-15T12:30:00Z" | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime', null, [1592224200]],
+  ])("date/time: %s", (filter, input, expected) => {
+    expect(jq(filter, input)).toEqual(expected);
+  });
 });

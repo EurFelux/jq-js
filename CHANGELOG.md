@@ -11,6 +11,7 @@
 - **IN**: Membership test (`IN(stream)` and `IN(s; stream)`) (#36)
 - **env / $ENV**: Access environment variables (#36)
 - **$__loc__**: Source location special variable (#36)
+- **Date/time builtins**: `now`, `gmtime`, `mktime`, `strftime`, `strptime`, `todate`/`date`, `fromdate`, `dateadd`, `datesub` (#35)
 
 ### Bug Fixes
 
