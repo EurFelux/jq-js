@@ -333,6 +333,17 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
     }
 
     case "var_ref":
+      if (node.name === "$ENV") {
+        return () => {
+          const result: Record<string, JsonValue> = {};
+          if (typeof globalThis.process !== "undefined" && globalThis.process.env) {
+            for (const [k, v] of Object.entries(globalThis.process.env)) {
+              if (v !== undefined) result[k] = v;
+            }
+          }
+          return [result];
+        };
+      }
       return (_input) => {
         if (node.name === "$__loc__") return [{ file: "<stdin>", line: 1 }];
         if (node.name === "$ENV") {
@@ -449,6 +460,12 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
       newEnv.funcs.set(node.name, { params: node.params, body: node.body, closure: newEnv });
       return compile(node.next, newEnv);
     }
+
+    case "import":
+      throw new JqRuntimeError("Module system (import) is not yet supported in jq-js");
+
+    case "include":
+      throw new JqRuntimeError("Module system (include) is not yet supported in jq-js");
 
     case "update": {
       const bodyFn = compile(node.body, env);
@@ -1807,6 +1824,17 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         throw new JqRuntimeError(`Cannot take abs of ${jqType(input)}`);
       };
 
+    case "env":
+      return () => {
+        const result: Record<string, JsonValue> = {};
+        if (typeof globalThis.process !== "undefined" && globalThis.process.env) {
+          for (const [k, v] of Object.entries(globalThis.process.env)) {
+            if (v !== undefined) result[k] = v;
+          }
+        }
+        return [result];
+      };
+
     case "input":
     case "inputs":
       throw new JqRuntimeError(`${name} is not supported in jq-js`);
@@ -2075,6 +2103,10 @@ function generateValues(
       generateValues(node.right, env, input, onValue, onError);
       break;
     }
+    case "import":
+      throw new JqRuntimeError("Module system (import) is not yet supported in jq-js");
+    case "include":
+      throw new JqRuntimeError("Module system (include) is not yet supported in jq-js");
     default: {
       try {
         for (const val of compile(node, env)(input)) {

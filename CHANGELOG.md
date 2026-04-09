@@ -14,6 +14,10 @@
 - **Date/time builtins**: `now`, `gmtime`, `mktime`, `strftime`, `strptime`, `todate`/`date`, `fromdate`, `dateadd`, `datesub` (#35)
 - **Try-alternative operator** (`?//`): catches errors and handles empty output, unlike `//` which only handles null/false (#38)
 - **Pattern alternatives in `as` bindings**: `expr as pattern1 ?// pattern2 | body` tries each destructuring pattern in order
+- **Module system**: parse `import "path" as name;` and `include "path";` statements (#37)
+  - Adds `Import` and `Include` tokens, AST nodes, and parser support
+  - Runtime throws a descriptive error (module loading not yet implemented)
+- **`$ENV` and `env`**: access environment variables via `$ENV` object or `env` builtin
 
 ### Bug Fixes
 

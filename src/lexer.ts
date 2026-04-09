@@ -21,6 +21,8 @@ const KEYWORDS: Record<string, TokenType> = {
   foreach: TokenType.Foreach,
   label: TokenType.Label,
   break: TokenType.Break,
+  import: TokenType.Import,
+  include: TokenType.Include,
 };
 
 export function lex(input: string): Token[] {
