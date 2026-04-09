@@ -20,17 +20,17 @@ jq-js is the only option that combines **real jq syntax**, **pure JS** (no WASM/
 ## Install
 
 ```bash
-pnpm add jq-js
+pnpm add @eurfelux/jq-js
 # or
-npm install jq-js
+npm install @eurfelux/jq-js
 # or
-yarn add jq-js
+yarn add @eurfelux/jq-js
 ```
 
 ## Usage
 
 ```typescript
-import { jq } from "jq-js";
+import { jq } from "@eurfelux/jq-js";
 
 // Basic field access
 jq(".name", { name: "Alice", age: 30 });
@@ -63,7 +63,7 @@ jq("reduce .[] as $x (0; . + $x)", [1, 2, 3, 4, 5]);
 For more control, you can access individual pipeline stages:
 
 ```typescript
-import { lex, parse, compile } from "jq-js";
+import { lex, parse, compile } from "@eurfelux/jq-js";
 
 // Tokenize
 const tokens = lex(".foo | map(. + 1)");
@@ -163,7 +163,7 @@ jq-js passes **531 of 555** official jq test cases (**95.7%**). The remaining ga
 jq-js provides typed errors for each pipeline stage:
 
 ```typescript
-import { jq, JqLexError, JqParseError, JqRuntimeError } from "jq-js";
+import { jq, JqLexError, JqParseError, JqRuntimeError } from "@eurfelux/jq-js";
 
 try {
   jq("invalid $$$ filter", null);
