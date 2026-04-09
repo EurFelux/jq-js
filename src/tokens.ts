@@ -48,6 +48,16 @@ export enum TokenType {
   // Alternative
   Alternative,
 
+  // Assignment/Update operators
+  Assign,
+  UpdatePipe,
+  PlusAssign,
+  MinusAssign,
+  MultiplyAssign,
+  DivideAssign,
+  ModuloAssign,
+  AltAssign,
+
   // Keywords (additional)
   As,
   Def,

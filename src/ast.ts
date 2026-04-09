@@ -27,6 +27,8 @@ export type AstNode =
   | LabelNode
   | BreakNode
   | DefNode
+  | UpdateNode
+  | AssignNode
   | StringInterpolationNode;
 
 export interface IdentityNode {
@@ -229,6 +231,21 @@ export interface DefNode {
   params: string[];
   body: AstNode;
   next: AstNode;
+  pos: number;
+}
+
+export interface UpdateNode {
+  kind: 'update';
+  path: AstNode;
+  op: '|=' | '+=' | '-=' | '*=' | '/=' | '%=' | '//=';
+  body: AstNode;
+  pos: number;
+}
+
+export interface AssignNode {
+  kind: 'assign';
+  path: AstNode;
+  value: AstNode;
   pos: number;
 }
 

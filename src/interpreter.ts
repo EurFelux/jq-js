@@ -355,6 +355,161 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
       newEnv.funcs.set(node.name, { params: node.params, body: node.body, closure: newEnv });
       return compile(node.next, newEnv);
     }
+
+    case 'update': {
+      const bodyFn = compile(node.body, env);
+      return (input) => {
+        return [updatePaths(input, node.path, env, (oldVal) => {
+          const op = node.op;
+          if (op === '|=') return bodyFn(oldVal)[0] ?? null;
+          if (op === '//=') return (oldVal !== null && oldVal !== false) ? oldVal : bodyFn(input)[0] ?? null;
+          const arithOp = op.slice(0, -1); // '+=' -> '+', etc.
+          const newVal = bodyFn(oldVal)[0] ?? null;
+          return applyArith(arithOp, oldVal, newVal);
+        })];
+      };
+    }
+
+    case 'assign': {
+      const valFn = compile(node.value, env);
+      return (input) => {
+        const values = valFn(input);
+        const val = values[0] ?? null;
+        return [updatePaths(input, node.path, env, () => val)];
+      };
+    }
+  }
+}
+
+function updatePaths(
+  root: JsonValue,
+  pathNode: AstNode,
+  env: Env,
+  updater: (oldVal: JsonValue) => JsonValue,
+): JsonValue {
+  // Walk the path expression and apply the updater at each leaf
+  return updatePathInner(root, pathNode, env, updater);
+}
+
+function updatePathInner(
+  root: JsonValue,
+  node: AstNode,
+  env: Env,
+  updater: (oldVal: JsonValue) => JsonValue,
+): JsonValue {
+  switch (node.kind) {
+    case 'identity':
+      return updater(root);
+
+    case 'field': {
+      if (root === null || typeof root !== 'object' || Array.isArray(root)) {
+        throw new JqRuntimeError(`Cannot index ${jqType(root)} with string "${node.name}"`);
+      }
+      const obj = { ...root };
+      obj[node.name] = updater(obj[node.name] ?? null);
+      return obj;
+    }
+
+    case 'index': {
+      const idxFn = compile(node.index, env);
+      const idx = idxFn(root)[0];
+      if (typeof idx === 'number' && Array.isArray(root)) {
+        const arr = [...root];
+        const i = idx < 0 ? arr.length + idx : idx;
+        arr[i] = updater(arr[i] ?? null);
+        return arr;
+      }
+      if (typeof idx === 'string' && root !== null && typeof root === 'object' && !Array.isArray(root)) {
+        const obj = { ...root };
+        obj[idx] = updater(obj[idx] ?? null);
+        return obj;
+      }
+      throw new JqRuntimeError(`Cannot index ${jqType(root)}`);
+    }
+
+    case 'iterate': {
+      if (Array.isArray(root)) {
+        return root.map((item) => updater(item));
+      }
+      if (root !== null && typeof root === 'object') {
+        const obj: Record<string, JsonValue> = {};
+        for (const [k, v] of Object.entries(root)) {
+          obj[k] = updater(v);
+        }
+        return obj;
+      }
+      throw new JqRuntimeError(`Cannot iterate over ${jqType(root)}`);
+    }
+
+    case 'pipe': {
+      // For a | b, update b within each result of navigating a
+      return updatePathInner(root, node.left, env, (leftVal) =>
+        updatePathInner(leftVal, node.right, env, updater),
+      );
+    }
+
+    case 'recurse': {
+      const rec = (v: JsonValue): JsonValue => {
+        const updated = updater(v);
+        if (Array.isArray(updated)) return updated.map(rec);
+        if (updated !== null && typeof updated === 'object') {
+          const obj: Record<string, JsonValue> = {};
+          for (const [k, val] of Object.entries(updated)) obj[k] = rec(val);
+          return obj;
+        }
+        return updated;
+      };
+      return rec(root);
+    }
+
+    case 'optional': {
+      try {
+        return updatePathInner(root, node.expr, env, updater);
+      } catch {
+        return root;
+      }
+    }
+
+    case 'comma': {
+      let result = updatePathInner(root, node.left, env, updater);
+      result = updatePathInner(result, node.right, env, updater);
+      return result;
+    }
+
+    case 'slice': {
+      if (!Array.isArray(root)) throw new JqRuntimeError(`Cannot slice ${jqType(root)}`);
+      const len = root.length;
+      const from = node.from ? (compile(node.from, env)(root)[0] as number ?? 0) : 0;
+      const to = node.to ? (compile(node.to, env)(root)[0] as number ?? len) : len;
+      const f = normalizeIndex(from, len);
+      const t = normalizeIndex(to, len);
+      const arr = [...root];
+      const sliced = arr.slice(f, t);
+      const updated = updater(sliced);
+      if (Array.isArray(updated)) {
+        arr.splice(f, t - f, ...updated);
+      }
+      return arr;
+    }
+
+    case 'func': {
+      // select(cond) |= expr — only update items matching condition
+      if (node.name === 'select' && node.args.length === 1) {
+        const condFn = compile(node.args[0]!, env);
+        if (Array.isArray(root)) {
+          return root.map((item) => {
+            const condResult = condFn(item);
+            return isTruthy(condResult[0]) ? updater(item) : item;
+          });
+        }
+      }
+      // For other function calls, fall through to default behavior
+      return updater(compile(node, env)(root)[0] ?? null);
+    }
+
+    default:
+      // For complex expressions, just evaluate and update
+      return updater(compile(node, env)(root)[0] ?? null);
   }
 }
 
