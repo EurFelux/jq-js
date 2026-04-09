@@ -324,12 +324,22 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
     case 'empty':
       return () => [];
 
-    case 'add':
+    case 'add': {
+      if (args.length === 0) {
+        return (input) => {
+          if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot add ${jqType(input)}`);
+          if (input.length === 0) return [null];
+          return [input.reduce((acc: JsonValue, item: JsonValue) => applyArith('+', acc, item))];
+        };
+      }
+      // add(f) — collect outputs of f and add them
+      const fn = compile(args[0]!);
       return (input) => {
-        if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot add ${jqType(input)}`);
-        if (input.length === 0) return [null];
-        return [input.reduce((acc: JsonValue, item: JsonValue) => applyArith('+', acc, item))];
+        const items = fn(input);
+        if (items.length === 0) return [null];
+        return [items.reduce((acc: JsonValue, item: JsonValue) => applyArith('+', acc, item))];
       };
+    }
 
     case 'any': {
       if (args.length === 0) {
@@ -798,6 +808,337 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
     case 'scalars':
       return (input) => (typeof input !== 'object' || input === null ? [input] : []);
 
+    case 'tojson':
+      return (input) => [JSON.stringify(input)];
+
+    case 'fromjson':
+      return (input) => {
+        if (typeof input !== 'string') throw new JqRuntimeError(`Cannot parse ${jqType(input)} as JSON`);
+        return [JSON.parse(input) as JsonValue];
+      };
+
+    case 'explode':
+      return (input) => {
+        if (typeof input !== 'string') throw new JqRuntimeError(`Cannot explode ${jqType(input)}`);
+        return [Array.from(input).map((ch) => ch.codePointAt(0)!)];
+      };
+
+    case 'implode':
+      return (input) => {
+        if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot implode ${jqType(input)}`);
+        return [String.fromCodePoint(...(input as number[]))];
+      };
+
+    case 'startswith': {
+      if (args.length !== 1) throw new JqRuntimeError('startswith/1 requires 1 argument');
+      const argFn = compile(args[0]!);
+      return (input) => {
+        if (typeof input !== 'string') throw new JqRuntimeError(`startswith requires string input`);
+        return argFn(input).map((s) => {
+          if (typeof s !== 'string') throw new JqRuntimeError('startswith argument must be a string');
+          return input.startsWith(s);
+        });
+      };
+    }
+
+    case 'endswith': {
+      if (args.length !== 1) throw new JqRuntimeError('endswith/1 requires 1 argument');
+      const argFn = compile(args[0]!);
+      return (input) => {
+        if (typeof input !== 'string') throw new JqRuntimeError(`endswith requires string input`);
+        return argFn(input).map((s) => {
+          if (typeof s !== 'string') throw new JqRuntimeError('endswith argument must be a string');
+          return input.endsWith(s);
+        });
+      };
+    }
+
+    case 'inside': {
+      if (args.length !== 1) throw new JqRuntimeError('inside/1 requires 1 argument');
+      const argFn = compile(args[0]!);
+      return (input) => argFn(input).map((other) => jsonContains(other, input));
+    }
+
+    case 'index': {
+      if (args.length !== 1) throw new JqRuntimeError('index/1 requires 1 argument');
+      const argFn = compile(args[0]!);
+      return (input) => argFn(input).map((s) => {
+        if (typeof input === 'string' && typeof s === 'string') {
+          const idx = input.indexOf(s);
+          return idx === -1 ? null : idx;
+        }
+        if (Array.isArray(input)) {
+          if (Array.isArray(s)) {
+            // Find subarray
+            outer: for (let i = 0; i <= input.length - s.length; i++) {
+              for (let j = 0; j < s.length; j++) {
+                if (JSON.stringify(input[i + j]) !== JSON.stringify(s[j])) continue outer;
+              }
+              return i as JsonValue;
+            }
+            return null;
+          }
+          const idx = input.findIndex((item) => JSON.stringify(item) === JSON.stringify(s));
+          return idx === -1 ? null : idx;
+        }
+        throw new JqRuntimeError(`Cannot index ${jqType(input)}`);
+      });
+    }
+
+    case 'rindex': {
+      if (args.length !== 1) throw new JqRuntimeError('rindex/1 requires 1 argument');
+      const argFn = compile(args[0]!);
+      return (input) => argFn(input).map((s) => {
+        if (typeof input === 'string' && typeof s === 'string') {
+          const idx = input.lastIndexOf(s);
+          return idx === -1 ? null : idx;
+        }
+        if (Array.isArray(input)) {
+          if (Array.isArray(s)) {
+            for (let i = input.length - s.length; i >= 0; i--) {
+              let match = true;
+              for (let j = 0; j < s.length; j++) {
+                if (JSON.stringify(input[i + j]) !== JSON.stringify(s[j])) { match = false; break; }
+              }
+              if (match) return i as JsonValue;
+            }
+            return null;
+          }
+          for (let i = input.length - 1; i >= 0; i--) {
+            if (JSON.stringify(input[i]) === JSON.stringify(s)) return i as JsonValue;
+          }
+          return null;
+        }
+        throw new JqRuntimeError(`Cannot rindex ${jqType(input)}`);
+      });
+    }
+
+    case 'indices': {
+      if (args.length !== 1) throw new JqRuntimeError('indices/1 requires 1 argument');
+      const argFn = compile(args[0]!);
+      return (input) => argFn(input).map((s) => {
+        const result: number[] = [];
+        if (typeof input === 'string' && typeof s === 'string') {
+          let idx = 0;
+          while ((idx = input.indexOf(s, idx)) !== -1) {
+            result.push(idx);
+            idx += 1;
+          }
+        } else if (Array.isArray(input)) {
+          if (Array.isArray(s)) {
+            for (let i = 0; i <= input.length - s.length; i++) {
+              let match = true;
+              for (let j = 0; j < s.length; j++) {
+                if (JSON.stringify(input[i + j]) !== JSON.stringify(s[j])) { match = false; break; }
+              }
+              if (match) result.push(i);
+            }
+          } else {
+            for (let i = 0; i < input.length; i++) {
+              if (JSON.stringify(input[i]) === JSON.stringify(s)) result.push(i);
+            }
+          }
+        } else {
+          throw new JqRuntimeError(`Cannot get indices of ${jqType(input)}`);
+        }
+        return result;
+      });
+    }
+
+    case 'utf8bytelength':
+      return (input) => {
+        if (typeof input !== 'string') throw new JqRuntimeError(`${jqType(input)} has no length`);
+        return [new TextEncoder().encode(input).length];
+      };
+
+    case 'builtins':
+      return () => [BUILTIN_NAMES.map((n) => n)];
+
+    case 'walk': {
+      if (args.length !== 1) throw new JqRuntimeError('walk/1 requires 1 argument');
+      const fn = compile(args[0]!);
+      return (input) => {
+        const walkInner = (v: JsonValue): JsonValue => {
+          if (Array.isArray(v)) {
+            return fn(v.map(walkInner))[0] ?? null;
+          }
+          if (v !== null && typeof v === 'object') {
+            const obj: Record<string, JsonValue> = {};
+            for (const [k, val] of Object.entries(v)) {
+              obj[k] = walkInner(val);
+            }
+            return fn(obj)[0] ?? null;
+          }
+          return fn(v)[0] ?? null;
+        };
+        return [walkInner(input)];
+      };
+    }
+
+    case 'recurse': {
+      if (args.length === 0) {
+        // Same as ..
+        return (input) => {
+          const results: JsonValue[] = [];
+          const rec = (v: JsonValue) => {
+            results.push(v);
+            if (Array.isArray(v)) for (const item of v) rec(item);
+            else if (v !== null && typeof v === 'object') for (const val of Object.values(v)) rec(val);
+          };
+          rec(input);
+          return results;
+        };
+      }
+      const fn = compile(args[0]!);
+      const condFn = args.length > 1 ? compile(args[1]!) : null;
+      return (input) => {
+        const results: JsonValue[] = [];
+        const seen = new Set<string>();
+        const rec = (v: JsonValue) => {
+          const key = JSON.stringify(v);
+          if (seen.has(key)) return;
+          seen.add(key);
+          if (condFn) {
+            const condResult = condFn(v);
+            if (!isTruthy(condResult[0])) return;
+          }
+          results.push(v);
+          try {
+            const next = fn(v);
+            for (const n of next) rec(n);
+          } catch {
+            // stop recursion on error
+          }
+        };
+        rec(input);
+        return results;
+      };
+    }
+
+    case 'until': {
+      if (args.length !== 2) throw new JqRuntimeError('until/2 requires 2 arguments');
+      const condFn = compile(args[0]!);
+      const updateFn = compile(args[1]!);
+      return (input) => {
+        let current = input;
+        for (let i = 0; i < 10000; i++) {
+          if (isTruthy(condFn(current)[0])) return [current];
+          current = updateFn(current)[0] ?? null;
+        }
+        throw new JqRuntimeError('until: iteration limit exceeded');
+      };
+    }
+
+    case 'while': {
+      if (args.length !== 2) throw new JqRuntimeError('while/2 requires 2 arguments');
+      const condFn = compile(args[0]!);
+      const updateFn = compile(args[1]!);
+      return (input) => {
+        const results: JsonValue[] = [];
+        let current = input;
+        for (let i = 0; i < 10000; i++) {
+          if (!isTruthy(condFn(current)[0])) break;
+          results.push(current);
+          current = updateFn(current)[0] ?? null;
+        }
+        return results;
+      };
+    }
+
+    case 'repeat': {
+      if (args.length !== 1) throw new JqRuntimeError('repeat/1 requires 1 argument');
+      const fn = compile(args[0]!);
+      return (input) => {
+        const results: JsonValue[] = [];
+        let current = input;
+        for (let i = 0; i < 10000; i++) {
+          results.push(current);
+          try {
+            const next = fn(current);
+            if (next.length === 0) break;
+            current = next[0]!;
+          } catch {
+            break;
+          }
+        }
+        return results;
+      };
+    }
+
+    case 'getpath': {
+      if (args.length !== 1) throw new JqRuntimeError('getpath/1 requires 1 argument');
+      const pathFn = compile(args[0]!);
+      return (input) => pathFn(input).map((p) => {
+        if (!Array.isArray(p)) throw new JqRuntimeError('Path must be an array');
+        return getPath(input, p);
+      });
+    }
+
+    case 'setpath': {
+      if (args.length !== 2) throw new JqRuntimeError('setpath/2 requires 2 arguments');
+      const pathFn = compile(args[0]!);
+      const valFn = compile(args[1]!);
+      return (input) =>
+        pathFn(input).flatMap((p) =>
+          valFn(input).map((v) => {
+            if (!Array.isArray(p)) throw new JqRuntimeError('Path must be an array');
+            return setPath(input, p, v);
+          }),
+        );
+    }
+
+    case 'delpaths': {
+      if (args.length !== 1) throw new JqRuntimeError('delpaths/1 requires 1 argument');
+      const pathsFn = compile(args[0]!);
+      return (input) => pathsFn(input).map((paths) => {
+        if (!Array.isArray(paths)) throw new JqRuntimeError('delpaths argument must be an array of paths');
+        let result = input;
+        // Delete in reverse order of path length to avoid index shifting
+        const sorted = [...(paths as JsonValue[][])].sort((a, b) => b.length - a.length);
+        for (const p of sorted) {
+          result = delPath(result, p);
+        }
+        return result;
+      });
+    }
+
+    case 'path': {
+      if (args.length !== 1) throw new JqRuntimeError('path/1 requires 1 argument');
+      // path(expr) returns the paths to each output of expr
+      // This is a simplified implementation
+      const exprFn = compile(args[0]!);
+      return (input) => {
+        const paths: JsonValue[] = [];
+        collectPaths(input, args[0]!, paths);
+        return paths;
+      };
+    }
+
+    case 'leaf_paths':
+      return (input) => {
+        const paths: JsonValue[][] = [];
+        const walk = (v: JsonValue, path: JsonValue[]) => {
+          if (Array.isArray(v)) {
+            if (v.length === 0) paths.push(path);
+            else v.forEach((item, i) => walk(item, [...path, i]));
+          } else if (v !== null && typeof v === 'object') {
+            const keys = Object.keys(v);
+            if (keys.length === 0) paths.push(path);
+            else keys.forEach((k) => walk((v as Record<string, JsonValue>)[k]!, [...path, k]));
+          } else {
+            paths.push(path);
+          }
+        };
+        walk(input, []);
+        return paths;
+      };
+
+    case 'abs':
+      return (input) => {
+        if (typeof input === 'number') return [Math.abs(input)];
+        throw new JqRuntimeError(`Cannot take abs of ${jqType(input)}`);
+      };
+
     case 'input':
     case 'inputs':
       throw new JqRuntimeError(`${name} is not supported in jq-js`);
@@ -850,9 +1191,19 @@ function applyArith(op: string, l: JsonValue, r: JsonValue): JsonValue {
   if (op === '+' && l !== null && r !== null && typeof l === 'object' && typeof r === 'object' && !Array.isArray(l) && !Array.isArray(r)) {
     return { ...l, ...r };
   }
+  // Array subtraction
+  if (op === '-' && Array.isArray(l) && Array.isArray(r)) {
+    return l.filter((item) => !r.some((rItem) => JSON.stringify(item) === JSON.stringify(rItem)));
+  }
+  // Object merge with *
+  if (op === '*' && l !== null && r !== null && typeof l === 'object' && typeof r === 'object' && !Array.isArray(l) && !Array.isArray(r)) {
+    return deepMerge(l as Record<string, JsonValue>, r as Record<string, JsonValue>);
+  }
   // null arithmetic
   if (op === '+' && l === null) return r;
   if (op === '+' && r === null) return l;
+  if (op === '-' && l === null) return r;
+  if (op === '-' && r === null) return l;
 
   if (typeof l !== 'number' || typeof r !== 'number') {
     throw new JqRuntimeError(`Cannot apply ${op} to ${jqType(l)} and ${jqType(r)}`);
@@ -924,6 +1275,152 @@ function jqCompare(a: JsonValue, b: JsonValue): number {
   }
   return 0;
 }
+
+function deepMerge(a: Record<string, JsonValue>, b: Record<string, JsonValue>): JsonValue {
+  const result = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    const existing = result[k];
+    if (existing !== undefined && existing !== null && v !== null &&
+        typeof existing === 'object' && typeof v === 'object' &&
+        !Array.isArray(existing) && !Array.isArray(v)) {
+      result[k] = deepMerge(existing as Record<string, JsonValue>, v as Record<string, JsonValue>);
+    } else {
+      result[k] = v;
+    }
+  }
+  return result;
+}
+
+// --- Path helpers ---
+
+function getPath(value: JsonValue, path: JsonValue[]): JsonValue {
+  let current = value;
+  for (const key of path) {
+    if (current === null) return null;
+    if (typeof key === 'string' && typeof current === 'object' && !Array.isArray(current)) {
+      current = (current as Record<string, JsonValue>)[key] ?? null;
+    } else if (typeof key === 'number' && Array.isArray(current)) {
+      current = current[key < 0 ? current.length + key : key] ?? null;
+    } else {
+      return null;
+    }
+  }
+  return current;
+}
+
+function setPath(value: JsonValue, path: JsonValue[], newVal: JsonValue): JsonValue {
+  if (path.length === 0) return newVal;
+  const key = path[0]!;
+  const rest = path.slice(1);
+  if (typeof key === 'string') {
+    const obj = (value !== null && typeof value === 'object' && !Array.isArray(value))
+      ? { ...value } : {} as Record<string, JsonValue>;
+    obj[key] = setPath(obj[key] ?? null, rest, newVal);
+    return obj;
+  }
+  if (typeof key === 'number') {
+    const arr = Array.isArray(value) ? [...value] : [];
+    const idx = key < 0 ? arr.length + key : key;
+    while (arr.length <= idx) arr.push(null);
+    arr[idx] = setPath(arr[idx] ?? null, rest, newVal);
+    return arr;
+  }
+  throw new JqRuntimeError(`Invalid path key type: ${jqType(key)}`);
+}
+
+function delPath(value: JsonValue, path: JsonValue[]): JsonValue {
+  if (path.length === 0) return value;
+  if (path.length === 1) {
+    const key = path[0]!;
+    if (typeof key === 'string' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const obj = { ...value };
+      delete obj[key];
+      return obj;
+    }
+    if (typeof key === 'number' && Array.isArray(value)) {
+      const arr = [...value];
+      const idx = key < 0 ? arr.length + key : key;
+      arr.splice(idx, 1);
+      return arr;
+    }
+    return value;
+  }
+  const key = path[0]!;
+  const rest = path.slice(1);
+  if (typeof key === 'string' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const obj = { ...value };
+    if (key in obj) obj[key] = delPath(obj[key]!, rest);
+    return obj;
+  }
+  if (typeof key === 'number' && Array.isArray(value)) {
+    const arr = [...value];
+    const idx = key < 0 ? arr.length + key : key;
+    if (idx >= 0 && idx < arr.length) arr[idx] = delPath(arr[idx]!, rest);
+    return arr;
+  }
+  return value;
+}
+
+function collectPaths(value: JsonValue, node: import('./ast.js').AstNode, results: JsonValue[]): void {
+  // Simplified path collection - handles common cases
+  if (node.kind === 'field') {
+    results.push([node.name]);
+  } else if (node.kind === 'identity') {
+    results.push([]);
+  } else if (node.kind === 'iterate') {
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) results.push([i]);
+    } else if (value !== null && typeof value === 'object') {
+      for (const k of Object.keys(value)) results.push([k]);
+    }
+  } else if (node.kind === 'recurse') {
+    const walk = (v: JsonValue, path: JsonValue[]) => {
+      results.push(path);
+      if (Array.isArray(v)) {
+        v.forEach((item, i) => walk(item, [...path, i]));
+      } else if (v !== null && typeof v === 'object') {
+        for (const [k, val] of Object.entries(v)) walk(val, [...path, k]);
+      }
+    };
+    walk(value, []);
+  } else if (node.kind === 'pipe') {
+    // For a.b — collect paths by walking the pipe chain
+    const leftPaths: JsonValue[] = [];
+    collectPaths(value, node.left, leftPaths);
+    for (const lp of leftPaths) {
+      const subVal = getPath(value, lp as JsonValue[]);
+      const rightPaths: JsonValue[] = [];
+      collectPaths(subVal, node.right, rightPaths);
+      for (const rp of rightPaths) {
+        results.push([...(lp as JsonValue[]), ...(rp as JsonValue[])]);
+      }
+    }
+  } else if (node.kind === 'optional') {
+    try {
+      collectPaths(value, node.expr, results);
+    } catch {
+      // optional — ignore errors
+    }
+  }
+}
+
+const BUILTIN_NAMES = [
+  'length', 'utf8bytelength', 'keys', 'keys_unsorted', 'values', 'has', 'contains', 'inside',
+  'add', 'any', 'all', 'flatten', 'range', 'floor', 'ceil', 'round', 'sqrt', 'fabs',
+  'pow', 'log', 'log2', 'log10', 'exp', 'exp2', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan',
+  'nan', 'infinite', 'isnan', 'isinfinite', 'isfinite', 'isnormal',
+  'sort', 'sort_by', 'group_by', 'unique', 'unique_by', 'max', 'max_by', 'min', 'min_by',
+  'reverse', 'map', 'map_values', 'select', 'empty', 'error', 'debug',
+  'type', 'not', 'null', 'true', 'false',
+  'tostring', 'tonumber', 'tojson', 'fromjson',
+  'ascii_downcase', 'ascii_upcase', 'ltrimstr', 'rtrimstr',
+  'startswith', 'endswith', 'split', 'join', 'test', 'index', 'rindex', 'indices',
+  'explode', 'implode', 'to_entries', 'from_entries', 'with_entries',
+  'recurse', 'walk', 'until', 'while', 'repeat', 'limit', 'first', 'last', 'nth',
+  'arrays', 'objects', 'iterables', 'booleans', 'numbers', 'strings', 'nulls', 'scalars',
+  'path', 'getpath', 'setpath', 'delpaths', 'leaf_paths',
+  'abs', 'builtins',
+];
 
 function jsonContains(a: JsonValue, b: JsonValue): boolean {
   if (typeof b === 'string' && typeof a === 'string') return a.includes(b);
