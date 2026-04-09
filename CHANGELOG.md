@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+- **Format strings**: `@base64`, `@base64d`, `@html`, `@csv`, `@tsv`, `@json`, `@uri`, `@text`, `@sh` with string interpolation support (#5)
+
 ### Bug Fixes
 
 - **try/catch**: Preserve original error values through try/catch (not just strings) (#33)

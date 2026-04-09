@@ -136,6 +136,25 @@ export function lex(input: string): Token[] {
       continue;
     }
 
+    // Format strings (@name)
+    if (ch === "@") {
+      const start = i;
+      i++; // skip @
+      while (
+        i < input.length &&
+        ((input[i]! >= "a" && input[i]! <= "z") ||
+          (input[i]! >= "A" && input[i]! <= "Z") ||
+          (input[i]! >= "0" && input[i]! <= "9") ||
+          input[i] === "_")
+      ) {
+        i++;
+      }
+      const name = input.slice(start + 1, i);
+      if (!name) throw new JqLexError("Expected format name after @", start);
+      tokens.push({ type: TokenType.Format, value: name, pos: start });
+      continue;
+    }
+
     // Variables ($name)
     if (ch === "$") {
       const start = i;

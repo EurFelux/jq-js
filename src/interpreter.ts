@@ -305,6 +305,18 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
       };
     }
 
+    case "format": {
+      const strFn = node.str ? compile(node.str, env) : null;
+      return (input) => {
+        if (strFn) {
+          // @format "string interpolation" — apply format to the interpolation result
+          const strs = strFn(input);
+          return strs.map((s) => applyFormat(node.name, s, node.pos));
+        }
+        return [applyFormat(node.name, input, node.pos)];
+      };
+    }
+
     case "var_ref":
       return (_input) => {
         const val = env.vars.get(node.name);
@@ -1783,6 +1795,82 @@ function jsonToString(v: JsonValue): string {
   return JSON.stringify(v);
 }
 
+function applyFormat(name: string, input: JsonValue, pos: number): JsonValue {
+  switch (name) {
+    case "base64": {
+      const str = typeof input === "string" ? input : JSON.stringify(input);
+      return btoa(unescape(encodeURIComponent(str)));
+    }
+    case "base64d": {
+      if (typeof input !== "string") {
+        throw new JqRuntimeError("@base64d requires string input");
+      }
+      return decodeURIComponent(escape(atob(input)));
+    }
+    case "html": {
+      const str = typeof input === "string" ? input : JSON.stringify(input);
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/'/g, "&#39;");
+    }
+    case "csv": {
+      if (!Array.isArray(input)) {
+        throw new JqRuntimeError("@csv requires array input");
+      }
+      return input
+        .map((v) => {
+          if (typeof v === "string") {
+            return '"' + v.replace(/"/g, '""') + '"';
+          }
+          if (v === null) return "";
+          return String(v);
+        })
+        .join(",");
+    }
+    case "tsv": {
+      if (!Array.isArray(input)) {
+        throw new JqRuntimeError("@tsv requires array input");
+      }
+      return input
+        .map((v) => {
+          if (typeof v === "string") {
+            return v
+              .replace(/\\/g, "\\\\")
+              .replace(/\t/g, "\\t")
+              .replace(/\n/g, "\\n")
+              .replace(/\r/g, "\\r");
+          }
+          if (v === null) return "";
+          return String(v);
+        })
+        .join("\t");
+    }
+    case "json":
+      return JSON.stringify(input);
+    case "uri": {
+      const str = typeof input === "string" ? input : JSON.stringify(input);
+      return encodeURIComponent(str);
+    }
+    case "text":
+      return jsonToString(input);
+    case "sh": {
+      if (Array.isArray(input)) {
+        return input.map((v) => shQuote(v)).join(" ");
+      }
+      return shQuote(input);
+    }
+    default:
+      throw new JqRuntimeError(`Unknown format: @${name}`);
+  }
+}
+
+function shQuote(v: JsonValue): string {
+  const str = typeof v === "string" ? v : JSON.stringify(v);
+  return "'" + str.replace(/'/g, "'\\''") + "'";
+}
+
 function normalizeIndex(i: number, len: number): number {
   return i < 0 ? Math.max(0, len + i) : Math.min(i, len);
 }
@@ -2183,6 +2271,15 @@ const BUILTIN_NAMES = [
   "leaf_paths",
   "abs",
   "builtins",
+  "@base64",
+  "@base64d",
+  "@html",
+  "@csv",
+  "@tsv",
+  "@json",
+  "@uri",
+  "@text",
+  "@sh",
 ];
 
 // --- Regex helpers ---

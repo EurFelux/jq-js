@@ -423,6 +423,16 @@ class Parser {
       case TokenType.Def:
         return this.parseDef();
 
+      case TokenType.Format: {
+        this.advance();
+        let str: AstNode | null = null;
+        if (this.peek().type === TokenType.String) {
+          const strToken = this.advance();
+          str = this.parseStringValue(strToken);
+        }
+        return { kind: "format", name: token.value, str, pos: token.pos };
+      }
+
       case TokenType.Ident:
         return this.parseFuncOrIdent();
 

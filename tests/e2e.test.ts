@@ -345,4 +345,34 @@ describe("jq-js e2e", () => {
     expect(jq(".a?", null)).toEqual([null]);
     expect(jq(".a?", "str")).toEqual([]);
   });
+
+  // Format strings
+  test.each([
+    ["@base64", "hello", ["aGVsbG8="]],
+    ["@base64d", "aGVsbG8=", ["hello"]],
+    ["@html", "<b>hi</b>", ["&lt;b&gt;hi&lt;/b&gt;"]],
+    [
+      ".[] | @csv",
+      [
+        ["a", "b"],
+        [1, 2],
+      ],
+      ['"a","b"', "1,2"],
+    ],
+    [
+      ".[] | @tsv",
+      [
+        ["a", "b"],
+        [1, 2],
+      ],
+      ["a\tb", "1\t2"],
+    ],
+    ["@json", { a: 1 }, ['{"a":1}']],
+    ["@uri", "hello world", ["hello%20world"]],
+    ["@text", "hello", ["hello"]],
+    ["@sh", "hello world", ["'hello world'"]],
+    ['@base64 "\\(.)"', "hello", ["aGVsbG8="]],
+  ])("format: jq(%j, %j) = %j", (filter, input, expected) => {
+    expect(jq(filter, input)).toEqual(expected);
+  });
 });
