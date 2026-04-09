@@ -377,7 +377,7 @@ describe("jq-js e2e", () => {
     ],
     ["2 | IN(range(3))", null, [true]],
     ["5 | IN(range(3))", null, [false]],
-    ["$__loc__", null, [{ file: "<stdin>", line: 1 }]],
+    ["$__loc__", null, [{ file: "<top-level>", line: 1 }]],
   ])("small builtins: jq(%j, %j) = %j", (filter, input, expected) => {
     expect(jq(filter, input)).toEqual(expected);
   });

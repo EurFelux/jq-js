@@ -25,6 +25,13 @@
 
 - **rtrimstr**: Fix `rtrimstr("")` incorrectly emptying strings (#36)
 - **ltrimstr/rtrimstr**: Error on non-string inputs matching jq behavior (#36)
+- **Keywords as object keys**: Allow keyword tokens (`if`, `and`, `or`, `as`, `try`, `catch`, etc.) as object keys in both shorthand `{as}` and `key: value` forms (#32)
+- **Keywords in destructuring**: Accept keyword tokens as keys in destructuring patterns (e.g., `. as {as: $kw} | $kw`) (#32)
+- **String shorthand in objects**: Support `{"str"}` and `{"str\(expr)"}` shorthand syntax in object construction (#32)
+- **`-reduce` / `-foreach`**: Parse unary minus before `reduce` and `foreach` expressions (#32)
+- **Reduce/foreach expression parsing**: Use full expression parsing (not just postfix) for the source expression, allowing `reduce .[] / .[] as $i (...)` (#32)
+- **`{$var: value}` key evaluation**: Use variable value (not variable name) as key when `$var` is followed by colon in object construction (#32)
+- **`$__loc__`**: Return `"file":"<top-level>"` instead of `"<stdin>"` to match jq behavior (#32)
 - **ascii_downcase/ascii_upcase**: Only affect ASCII letters (a-z, A-Z), not Unicode (#36)
 - **flatten**: Negative depth now correctly throws an error (#36)
 
