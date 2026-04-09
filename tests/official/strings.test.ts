@@ -6,17 +6,11 @@ import { describe, expect, test } from "vitest";
 import { jq } from "../../src/index.js";
 
 describe("jq official: strings", () => {
-  // line 53: # FIXME: more tests needed for weird unicode stuff (e.g. utf16 pairs)
-  test(`# FIXME: more tests needed for weird unicode stuff (e.g. utf16 pairs) | "Aa\\r\\n\\t\\b\\f\\u03bc"`, () => {
-    const input = JSON.parse(`"Aa\\r\\n\\t\\b\\f\\u03bc"`);
-    const result = jq(
-      `# FIXME: more tests needed for weird unicode stuff (e.g. utf16 pairs)`,
-      input,
-    );
-    expect(result).toEqual([
-      JSON.parse(`null`),
-      JSON.parse(`"Aa\\u000d\\u000a\\u0009\\u0008\\u000c\\u03bc"`),
-    ]);
+  // line 54: "Aa\r\n\t\b\f\u03bc"
+  test(`"Aa\\r\\n\\t\\b\\f\\u03bc" | null`, () => {
+    const input = JSON.parse(`null`);
+    const result = jq(`"Aa\\r\\n\\t\\b\\f\\u03bc"`, input);
+    expect(result).toEqual([JSON.parse(`"Aa\\u000d\\u000a\\u0009\\u0008\\u000c\\u03bc"`)]);
   });
 
   // line 58: .

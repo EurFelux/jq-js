@@ -73,8 +73,8 @@ function parseJqTests(content: string): Map<string, TestCase[]> {
   while (i < lines.length) {
     const line = lines[i]!;
 
-    // Detect section headers in comments
-    if (line.startsWith('#') && !line.startsWith('# FIXME')) {
+    // Detect section headers in comments (all # lines are comments, skip them)
+    if (line.startsWith('#')) {
       const headerText = line.replace(/^#+\s*/, '').trim();
       if (headerText.length > 3) {
         const detected = classifySection(headerText);
@@ -92,8 +92,8 @@ function parseJqTests(content: string): Map<string, TestCase[]> {
       continue;
     }
 
-    // Check for %%FAIL — skip this block
-    if (line.trim() === '%%FAIL') {
+    // Check for %%FAIL — skip this block (handles %%FAIL and %%FAIL IGNORE MSG variants)
+    if (line.trim().startsWith('%%FAIL')) {
       i++;
       while (i < lines.length && lines[i]!.trim() !== '') i++;
       continue;
@@ -104,7 +104,8 @@ function parseJqTests(content: string): Map<string, TestCase[]> {
     i++;
 
     if (i >= lines.length) break;
-    const input = lines[i]!;
+    // Strip BOM (U+FEFF) from input lines
+    const input = lines[i]!.replace(/^\uFEFF/, '');
     i++;
 
     const outputs: string[] = [];

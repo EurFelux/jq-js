@@ -6,6 +6,34 @@ import { describe, expect, test } from "vitest";
 import { jq } from "../../src/index.js";
 
 describe("jq official: numbers", () => {
+  // line 31: {}
+  test(`{} | null`, () => {
+    const input = JSON.parse(`null`);
+    const result = jq(`{}`, input);
+    expect(result).toEqual([JSON.parse(`{}`)]);
+  });
+
+  // line 35: []
+  test(`[] | null`, () => {
+    const input = JSON.parse(`null`);
+    const result = jq(`[]`, input);
+    expect(result).toEqual([JSON.parse(`[]`)]);
+  });
+
+  // line 39: {x:-1},{x:-.},{x:-.|abs}
+  test(`{x:-1},{x:-.},{x:-.|abs} | 1`, () => {
+    const input = JSON.parse(`1`);
+    const result = jq(`{x:-1},{x:-.},{x:-.|abs}`, input);
+    expect(result).toEqual([JSON.parse(`{"x":-1}`), JSON.parse(`{"x":-1}`), JSON.parse(`{"x":1}`)]);
+  });
+
+  // line 48: .
+  test(`. | "byte order mark"`, () => {
+    const input = JSON.parse(`"byte order mark"`);
+    const result = jq(`.`, input);
+    expect(result).toEqual([JSON.parse(`"byte order mark"`)]);
+  });
+
   // line 490: reduce range(65540;65536;-1) as $i ([]; .[$i] = $i)|.[65536:]
   test(`reduce range(65540;65536;-1) as \$i ([]; .[\$i] = \$i)|.[65536:] | null`, () => {
     const input = JSON.parse(`null`);

@@ -309,19 +309,6 @@ describe("jq official: regex", () => {
     expect(result).toEqual([JSON.parse(`2`)]);
   });
 
-  // line 1972: %%FAIL IGNORE MSG
-  test(`%%FAIL IGNORE MSG | import "syntaxerror" as e; .`, () => {
-    const input = JSON.parse(`import "syntaxerror" as e; .`);
-    const result = jq(`%%FAIL IGNORE MSG`, input);
-    expect(result).toEqual([
-      JSON.parse(
-        `jq: error: syntax error, unexpected ';', expecting end of file at tests/modules/syntaxerror/syntaxerror.jq, line 1, column 4:`,
-      ),
-      JSON.parse(`    wat;`),
-      JSON.parse(`       ^`),
-    ]);
-  });
-
   // line 1984: import "test_bind_order" as check; check::check
   test(`import "test_bind_order" as check; check::check | null`, () => {
     const input = JSON.parse(`null`);

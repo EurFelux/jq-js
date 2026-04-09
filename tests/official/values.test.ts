@@ -40,32 +40,4 @@ describe("jq official: values", () => {
     const result = jq(`-1`, input);
     expect(result).toEqual([JSON.parse(`-1`)]);
   });
-
-  // line 29: # FIXME: much more number testing needed
-  test(`# FIXME: much more number testing needed | `, () => {
-    const input = JSON.parse(``);
-    const result = jq(`# FIXME: much more number testing needed`, input);
-    expect(result).toEqual([JSON.parse(`{}`), JSON.parse(`null`), JSON.parse(`{}`)]);
-  });
-
-  // line 35: []
-  test(`[] | null`, () => {
-    const input = JSON.parse(`null`);
-    const result = jq(`[]`, input);
-    expect(result).toEqual([JSON.parse(`[]`)]);
-  });
-
-  // line 39: {x:-1},{x:-.},{x:-.|abs}
-  test(`{x:-1},{x:-.},{x:-.|abs} | 1`, () => {
-    const input = JSON.parse(`1`);
-    const result = jq(`{x:-1},{x:-.},{x:-.|abs}`, input);
-    expect(result).toEqual([JSON.parse(`{"x":-1}`), JSON.parse(`{"x":-1}`), JSON.parse(`{"x":1}`)]);
-  });
-
-  // line 48: .
-  test(`. | ﻿"byte order mark"`, () => {
-    const input = JSON.parse(`﻿"byte order mark"`);
-    const result = jq(`.`, input);
-    expect(result).toEqual([JSON.parse(`"byte order mark"`)]);
-  });
 });
