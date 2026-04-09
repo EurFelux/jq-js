@@ -457,4 +457,32 @@ describe("jq-js e2e", () => {
   ])("date/time: %s", (filter, input, expected) => {
     expect(jq(filter, input)).toEqual(expected);
   });
+
+  // Try-alternative operator (?//)
+  test.each([
+    ['.foo ?// "default"', {}, ["default"]],
+    ['.foo ?// "default"', { foo: 42 }, [42]],
+    ['null ?// "fallback"', null, ["fallback"]],
+    ['false ?// "fallback"', null, ["fallback"]],
+    ['error ?// "caught"', null, ["caught"]],
+    ['.x ?// .y ?// "none"', { y: 2 }, [2]],
+    ['.x ?// .y ?// "none"', {}, ["none"]],
+    ['.x ?// .y ?// "none"', { x: 1 }, [1]],
+  ])("try-alternative: jq(%j, %j) = %j", (filter, input, expected) => {
+    expect(jq(filter, input)).toEqual(expected);
+  });
+
+  // Try-alternative in as binding patterns
+  test.each([
+    [
+      ".[] | . as {a: $a} ?// $f | [$a, $f]",
+      [{ a: 1 }, "foo"],
+      [
+        [1, null],
+        [null, "foo"],
+      ],
+    ],
+  ])("try-alternative patterns: jq(%j, %j) = %j", (filter, input, expected) => {
+    expect(jq(filter, input)).toEqual(expected);
+  });
 });

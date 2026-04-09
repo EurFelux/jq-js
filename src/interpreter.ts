@@ -283,6 +283,21 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
       };
     }
 
+    case "try_alternative": {
+      const leftFn = compile(node.left, env);
+      const rightFn = compile(node.right, env);
+      return (input) => {
+        try {
+          const results = leftFn(input);
+          if (results.length === 0) return rightFn(input);
+          const filtered = results.filter((v) => v !== null && v !== false);
+          return filtered.length > 0 ? filtered : rightFn(input);
+        } catch {
+          return rightFn(input);
+        }
+      };
+    }
+
     case "string_interpolation": {
       const compiledParts = node.parts.map((p) => (typeof p === "string" ? p : compile(p, env)));
       return (input) => {
@@ -334,12 +349,39 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
 
     case "as": {
       const exprFn = compile(node.expr, env);
+      const hasAlternatives = node.alternativePatterns.length > 0;
+      const allPatterns = [node.pattern, ...node.alternativePatterns];
       return (input) => {
         const values = exprFn(input);
+        if (!hasAlternatives) {
+          return values.flatMap((val) => {
+            const newEnv = extendEnv(env);
+            bindPattern(newEnv, node.pattern, val);
+            return compile(node.body, newEnv)(input);
+          });
+        }
+        // Collect all variable names from all patterns for null-initialization
+        const allVarNames: string[] = [];
+        for (const p of allPatterns) collectPatternVars(p, allVarNames);
         return values.flatMap((val) => {
-          const newEnv = extendEnv(env);
-          bindPattern(newEnv, node.pattern, val);
-          return compile(node.body, newEnv)(input);
+          for (let i = 0; i < allPatterns.length; i++) {
+            try {
+              const newEnv = extendEnv(env);
+              // Pre-initialize all vars to null
+              for (const name of allVarNames) newEnv.vars.set(name, null);
+              strictBindPattern(newEnv, allPatterns[i]!, val);
+              return compile(node.body, newEnv)(input);
+            } catch {
+              if (i === allPatterns.length - 1) {
+                // Last pattern also failed — try non-strict bind on last pattern
+                const newEnv = extendEnv(env);
+                for (const name of allVarNames) newEnv.vars.set(name, null);
+                bindPattern(newEnv, allPatterns[i]!, val);
+                return compile(node.body, newEnv)(input);
+              }
+            }
+          }
+          return [];
         });
       };
     }
@@ -602,19 +644,52 @@ function updatePathInner(
   }
 }
 
+function collectPatternVars(pattern: BindingPattern, out: string[]): void {
+  switch (pattern.type) {
+    case "variable":
+      out.push(pattern.name);
+      break;
+    case "array":
+      for (const el of pattern.elements) collectPatternVars(el, out);
+      break;
+    case "object":
+      for (const entry of pattern.entries) collectPatternVars(entry.pattern, out);
+      break;
+  }
+}
+
 function bindPattern(env: Env, pattern: BindingPattern, value: JsonValue): void {
+  bindPatternImpl(env, pattern, value, false);
+}
+
+function strictBindPattern(env: Env, pattern: BindingPattern, value: JsonValue): void {
+  bindPatternImpl(env, pattern, value, true);
+}
+
+function bindPatternImpl(
+  env: Env,
+  pattern: BindingPattern,
+  value: JsonValue,
+  strict: boolean,
+): void {
   switch (pattern.type) {
     case "variable":
       env.vars.set(pattern.name, value);
       break;
     case "array": {
+      if (strict && !Array.isArray(value)) {
+        throw new JqRuntimeError(`Cannot destructure ${jqType(value)} as array`);
+      }
       const arr = Array.isArray(value) ? value : [];
       for (let i = 0; i < pattern.elements.length; i++) {
-        bindPattern(env, pattern.elements[i]!, arr[i] ?? null);
+        bindPatternImpl(env, pattern.elements[i]!, arr[i] ?? null, strict);
       }
       break;
     }
     case "object": {
+      if (strict && (value === null || typeof value !== "object" || Array.isArray(value))) {
+        throw new JqRuntimeError(`Cannot destructure ${jqType(value)} as object`);
+      }
       const obj =
         value !== null && typeof value === "object" && !Array.isArray(value)
           ? (value as Record<string, JsonValue>)
@@ -631,7 +706,7 @@ function bindPattern(env: Env, pattern: BindingPattern, value: JsonValue): void 
           const keyResult = keyFn(value);
           keyStr = String(keyResult[0]);
         }
-        bindPattern(env, entry.pattern, obj[keyStr] ?? null);
+        bindPatternImpl(env, entry.pattern, obj[keyStr] ?? null, strict);
       }
       break;
     }

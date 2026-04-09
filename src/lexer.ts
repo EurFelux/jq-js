@@ -197,6 +197,11 @@ export function lex(input: string): Token[] {
     // Three-character operators
     if (i + 2 < input.length) {
       const three = input.slice(i, i + 3);
+      if (three === "?//") {
+        tokens.push({ type: TokenType.TryAlternative, value: three, pos: i });
+        i += 3;
+        continue;
+      }
       if (three === "//=") {
         tokens.push({ type: TokenType.AltAssign, value: three, pos: i });
         i += 3;

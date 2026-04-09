@@ -47,6 +47,7 @@ export enum TokenType {
 
   // Alternative
   Alternative,
+  TryAlternative,
 
   // Assignment/Update operators
   Assign,

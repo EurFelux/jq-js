@@ -20,6 +20,7 @@ export type AstNode =
   | CommaNode
   | OptionalNode
   | AlternativeNode
+  | TryAlternativeNode
   | VarRefNode
   | AsNode
   | ReduceNode
@@ -175,6 +176,13 @@ export interface AlternativeNode {
   pos: number;
 }
 
+export interface TryAlternativeNode {
+  kind: "try_alternative";
+  left: AstNode;
+  right: AstNode;
+  pos: number;
+}
+
 export interface VarRefNode {
   kind: "var_ref";
   name: string; // includes $ prefix
@@ -190,6 +198,7 @@ export interface AsNode {
   kind: "as";
   expr: AstNode;
   pattern: BindingPattern;
+  alternativePatterns: BindingPattern[];
   body: AstNode;
   pos: number;
 }
