@@ -45,6 +45,9 @@ export enum TokenType {
   Try,
   Catch,
 
+  // Alternative
+  Alternative,
+
   // Special
   Recurse,
   Ident,

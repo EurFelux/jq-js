@@ -220,6 +220,15 @@ export function compile(node: AstNode): Filter {
       };
     }
 
+    case 'alternative': {
+      const leftFn = compile(node.left);
+      const rightFn = compile(node.right);
+      return (input) => {
+        const results = leftFn(input).filter((v) => v !== null && v !== false);
+        return results.length > 0 ? results : rightFn(input);
+      };
+    }
+
     case 'string_interpolation': {
       const compiledParts = node.parts.map((p) =>
         typeof p === 'string' ? p : compile(p),

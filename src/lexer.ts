@@ -144,6 +144,7 @@ export function lex(input: string): Token[] {
         case '!=': tokens.push({ type: TokenType.Neq, value: two, pos: i }); i += 2; continue;
         case '<=': tokens.push({ type: TokenType.Lte, value: two, pos: i }); i += 2; continue;
         case '>=': tokens.push({ type: TokenType.Gte, value: two, pos: i }); i += 2; continue;
+        case '//': tokens.push({ type: TokenType.Alternative, value: two, pos: i }); i += 2; continue;
         case '..': tokens.push({ type: TokenType.Recurse, value: two, pos: i }); i += 2; continue;
       }
     }

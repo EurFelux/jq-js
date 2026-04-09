@@ -283,6 +283,21 @@ describe('jq-js e2e', () => {
     });
   });
 
+  // Alternative operator (//)
+  test.each([
+    ['null // "default"', null, ['default']],
+    ['false // "default"', null, ['default']],
+    ['true // "default"', null, [true]],
+    ['0 // "default"', null, [0]],
+    ['"" // "default"', null, ['']],
+    ['.a // "missing"', { b: 1 }, ['missing']],
+    ['.a // .b // "none"', { b: 2 }, [2]],
+    ['.a // .b // "none"', {}, ['none']],
+    ['null // null // "last"', null, ['last']],
+  ])('alternative: jq(%j, %j) = %j', (filter, input, expected) => {
+    expect(jq(filter, input)).toEqual(expected);
+  });
+
   // Try-catch
   test.each([
     ['try .a', null, []],
