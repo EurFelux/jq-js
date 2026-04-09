@@ -822,13 +822,136 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
     case 'test': {
       if (args.length < 1) throw new JqRuntimeError('test requires at least 1 argument');
       const patternFn = compile(args[0]!, env);
-      const flagsFn = args.length > 1 ? compile(args[1]!) : null;
+      const flagsFn = args.length > 1 ? compile(args[1]!, env) : null;
       return (input) => {
         if (typeof input !== 'string') throw new JqRuntimeError(`Cannot test ${jqType(input)}`);
-        return patternFn(input).flatMap((pattern) => {
-          const flags = flagsFn ? flagsFn(input).map(String) : [''];
-          return flags.map((f) => new RegExp(String(pattern), f).test(input));
+        return patternFn(input).map((pattern) => {
+          const [re] = buildRegex(pattern, flagsFn ? flagsFn(input)[0] ?? null : null, '');
+          return re.test(input);
         });
+      };
+    }
+
+    case 'match': {
+      if (args.length < 1) throw new JqRuntimeError('match requires at least 1 argument');
+      const patternFn = compile(args[0]!, env);
+      const flagsFn = args.length > 1 ? compile(args[1]!, env) : null;
+      return (input) => {
+        if (typeof input !== 'string') throw new JqRuntimeError(`Cannot match ${jqType(input)}`);
+        return patternFn(input).flatMap((pattern) => {
+          const [re, hasGlobal] = buildRegex(pattern, flagsFn ? flagsFn(input)[0] ?? null : null, '');
+          if (hasGlobal) return collectAllMatches(re, input);
+          const m = re.exec(input);
+          if (!m) return [];
+          return [buildMatchObject(m)];
+        });
+      };
+    }
+
+    case 'capture': {
+      if (args.length < 1) throw new JqRuntimeError('capture requires at least 1 argument');
+      const patternFn = compile(args[0]!, env);
+      const flagsFn = args.length > 1 ? compile(args[1]!, env) : null;
+      return (input) => {
+        if (typeof input !== 'string') throw new JqRuntimeError(`Cannot capture ${jqType(input)}`);
+        return patternFn(input).map((pattern) => {
+          const [re] = buildRegex(pattern, flagsFn ? flagsFn(input)[0] ?? null : null, '');
+          const m = re.exec(input);
+          if (!m || !m.groups) return {};
+          const result: Record<string, JsonValue> = {};
+          for (const [k, v] of Object.entries(m.groups)) result[k] = v ?? null;
+          return result;
+        });
+      };
+    }
+
+    case 'scan': {
+      if (args.length < 1) throw new JqRuntimeError('scan requires at least 1 argument');
+      const patternFn = compile(args[0]!, env);
+      const flagsFn = args.length > 1 ? compile(args[1]!, env) : null;
+      return (input) => {
+        if (typeof input !== 'string') throw new JqRuntimeError(`Cannot scan ${jqType(input)}`);
+        const results: JsonValue[] = [];
+        for (const pattern of patternFn(input)) {
+          const [re] = buildRegex(pattern, flagsFn ? flagsFn(input)[0] ?? null : null, 'g');
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(input)) !== null) {
+            if (m[0]!.length === 0) { re.lastIndex++; continue; }
+            if (m.length > 1) {
+              results.push(Array.from(m).slice(1).map(v => v ?? null));
+            } else {
+              results.push(m[0]!);
+            }
+          }
+        }
+        return results;
+      };
+    }
+
+    case 'sub': {
+      if (args.length < 2) throw new JqRuntimeError('sub requires at least 2 arguments');
+      const patternFn = compile(args[0]!, env);
+      const replFn = compile(args[1]!, env);
+      const flagsFn = args.length > 2 ? compile(args[2]!, env) : null;
+      return (input) => {
+        if (typeof input !== 'string') throw new JqRuntimeError(`Cannot sub ${jqType(input)}`);
+        return patternFn(input).map((pattern) => {
+          const [re] = buildRegex(pattern, flagsFn ? flagsFn(input)[0] ?? null : null, '');
+          const m = re.exec(input);
+          if (!m) return input;
+          const matchObj = buildMatchObject(m);
+          const replacement = replFn(matchObj)[0];
+          const replStr = typeof replacement === 'string' ? replacement : JSON.stringify(replacement);
+          return input.slice(0, m.index) + replStr + input.slice(m.index + m[0]!.length);
+        });
+      };
+    }
+
+    case 'gsub': {
+      if (args.length < 2) throw new JqRuntimeError('gsub requires at least 2 arguments');
+      const patternFn = compile(args[0]!, env);
+      const replFn = compile(args[1]!, env);
+      const flagsFn = args.length > 2 ? compile(args[2]!, env) : null;
+      return (input) => {
+        if (typeof input !== 'string') throw new JqRuntimeError(`Cannot gsub ${jqType(input)}`);
+        return patternFn(input).map((pattern) => {
+          const [re] = buildRegex(pattern, flagsFn ? flagsFn(input)[0] ?? null : null, 'g');
+          let result = '';
+          let lastIndex = 0;
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(input)) !== null) {
+            result += input.slice(lastIndex, m.index);
+            const matchObj = buildMatchObject(m);
+            const replacement = replFn(matchObj)[0];
+            result += typeof replacement === 'string' ? replacement : JSON.stringify(replacement);
+            lastIndex = m.index + m[0]!.length;
+            if (m[0]!.length === 0) { re.lastIndex++; lastIndex = re.lastIndex; }
+          }
+          result += input.slice(lastIndex);
+          return result;
+        });
+      };
+    }
+
+    case 'splits': {
+      if (args.length < 1) throw new JqRuntimeError('splits requires at least 1 argument');
+      const patternFn = compile(args[0]!, env);
+      const flagsFn = args.length > 1 ? compile(args[1]!, env) : null;
+      return (input) => {
+        if (typeof input !== 'string') throw new JqRuntimeError(`Cannot splits ${jqType(input)}`);
+        const results: JsonValue[] = [];
+        for (const pattern of patternFn(input)) {
+          const [re] = buildRegex(pattern, flagsFn ? flagsFn(input)[0] ?? null : null, 'g');
+          let lastIndex = 0;
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(input)) !== null) {
+            results.push(input.slice(lastIndex, m.index));
+            lastIndex = m.index + m[0]!.length;
+            if (m[0]!.length === 0) { re.lastIndex++; lastIndex = re.lastIndex; }
+          }
+          results.push(input.slice(lastIndex));
+        }
+        return results;
       };
     }
 
@@ -1726,13 +1849,89 @@ const BUILTIN_NAMES = [
   'type', 'not', 'null', 'true', 'false',
   'tostring', 'tonumber', 'tojson', 'fromjson',
   'ascii_downcase', 'ascii_upcase', 'ltrimstr', 'rtrimstr',
-  'startswith', 'endswith', 'split', 'join', 'test', 'index', 'rindex', 'indices',
+  'startswith', 'endswith', 'split', 'join', 'test', 'match', 'capture', 'scan', 'sub', 'gsub', 'splits',
+  'index', 'rindex', 'indices',
   'explode', 'implode', 'to_entries', 'from_entries', 'with_entries',
   'recurse', 'walk', 'until', 'while', 'repeat', 'limit', 'first', 'last', 'nth',
   'arrays', 'objects', 'iterables', 'booleans', 'numbers', 'strings', 'nulls', 'scalars',
   'path', 'getpath', 'setpath', 'delpaths', 'leaf_paths',
   'abs', 'builtins',
 ];
+
+// --- Regex helpers ---
+
+function buildRegex(pattern: JsonValue, flags: JsonValue | null, defaultFlags: string): [RegExp, boolean] {
+  let patStr: string;
+  let flagStr = defaultFlags;
+
+  if (Array.isArray(pattern)) {
+    patStr = String(pattern[0]);
+    if (pattern.length > 1) flagStr = String(pattern[1]);
+  } else {
+    patStr = String(pattern);
+  }
+
+  if (flags !== null && flags !== undefined) {
+    if (typeof flags === 'string') flagStr = flags;
+  }
+
+  // jq flag 'x' (extended) — strip comments and unescaped whitespace
+  const hasX = flagStr.includes('x');
+  if (hasX) {
+    patStr = patStr.replace(/#[^\n]*/g, '').replace(/(?<!\\)\s+/g, '');
+    flagStr = flagStr.replace(/x/g, '');
+  }
+  // jq 'n' flag — not a JS flag, used by jq for explicit captures only
+  const hasN = flagStr.includes('n');
+  if (hasN) flagStr = flagStr.replace(/n/g, '');
+  // jq 'g' flag
+  const hasGlobal = flagStr.includes('g') || defaultFlags.includes('g');
+  // Map remaining jq flags to JS: i, m, s → i, m, s
+  let jsFlags = '';
+  if (flagStr.includes('i')) jsFlags += 'i';
+  if (flagStr.includes('m')) jsFlags += 'm';
+  if (flagStr.includes('s')) jsFlags += 's';
+  if (hasGlobal) jsFlags += 'g';
+
+  return [new RegExp(patStr, jsFlags), hasGlobal];
+}
+
+function buildMatchObject(m: RegExpExecArray): JsonValue {
+  const captures: JsonValue[] = [];
+  if (m.length > 1) {
+    for (let i = 1; i < m.length; i++) {
+      const groupName = m.groups ? Object.entries(m.groups).find(([_, v]) => v === m[i])?.[0] ?? null : null;
+      if (m[i] === undefined) {
+        captures.push({ offset: -1, length: 0, string: null, name: groupName });
+      } else {
+        const groupStr = m[i]!;
+        const groupOffset = m[0]!.indexOf(groupStr) >= 0 ? m.index + m[0]!.indexOf(groupStr) : m.index;
+        captures.push({
+          offset: groupOffset,
+          length: groupStr.length,
+          string: groupStr,
+          name: groupName,
+        });
+      }
+    }
+  }
+  return {
+    offset: m.index,
+    length: m[0]!.length,
+    string: m[0]!,
+    captures,
+  };
+}
+
+function collectAllMatches(re: RegExp, input: string): JsonValue[] {
+  const results: JsonValue[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(input)) !== null) {
+    results.push(buildMatchObject(m));
+    if (m[0]!.length === 0) re.lastIndex++;
+  }
+  return results;
+}
 
 function jsonContains(a: JsonValue, b: JsonValue): boolean {
   if (typeof b === 'string' && typeof a === 'string') return a.includes(b);
