@@ -10,7 +10,7 @@ A pure TypeScript implementation of [jq](https://jqlang.github.io/jq/), the JSON
 | **jq syntax** | :white_check_mark: | :white_check_mark: | :white_check_mark: | :x: (own DSL) |
 | **ESM support** | :white_check_mark: `type: "module"` + `exports` | :x: CJS only | :x: No `exports` | :warning: No `type: "module"` |
 | **Browser** | :white_check_mark: | :x: Node only | :white_check_mark: | :white_check_mark: |
-| **Native deps** | None | Requires `jq` installed | WASM binary (~400KB) | None |
+| **Native deps** | None | Requires `jq` installed | WASM binary (~1.4MB) | None |
 | **Tree-shakeable** | :white_check_mark: | :x: | :x: | :x: |
 | **TypeScript** | Written in TS, ships `.d.ts` | `@types/node-jq` | Minimal types | Ships `.d.ts` |
 | **Bundle size** | ~85KB (~21KB gzip) | N/A (native) | ~1.4MB (~500KB gzip) | ~74KB (~23KB gzip) |
