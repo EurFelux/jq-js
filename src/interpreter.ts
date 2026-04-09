@@ -62,10 +62,12 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
         return indices.flatMap((idx) => {
           if (typeof idx === "number") {
             if (isNaN(idx)) {
-              if (Array.isArray(input)) {
-                throw new JqRuntimeError(`number (nan) and array cannot be iterated`);
-              }
-              throw new JqRuntimeError(`Cannot index ${jqType(input)} with number`);
+              return [null];
+            }
+            if (typeof input === "string") {
+              throw new JqRuntimeError(
+                `Cannot index string with number (${Object.is(idx, -0) ? 0 : idx})`,
+              );
             }
             if (!Array.isArray(input)) {
               throw new JqRuntimeError(`Cannot index ${jqType(input)} with number`);
@@ -96,8 +98,12 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
         const toResults = node.to ? compile(node.to, env)(input) : [len];
         return fromResults.flatMap((f) =>
           toResults.map((t) => {
-            const from = normalizeIndex(Math.floor(f as number), len);
-            const to = normalizeIndex(Math.floor(t as number), len);
+            const from = normalizeIndex(Math.floor(f as number), len, true);
+            const to = normalizeIndex(
+              Number.isInteger(t as number) ? (t as number) : Math.ceil(t as number),
+              len,
+              false,
+            );
             return input.slice(from, to) as JsonValue;
           }),
         );
@@ -113,16 +119,72 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
 
     case "pipe": {
       const leftFn = compile(node.left, env);
-      const rightFn = compile(node.right, env);
+      // Check if right side is an index with useOriginalInput
+      const rightIsOrigIndex =
+        node.right.kind === "index" &&
+        (node.right as import("./ast.js").IndexNode).useOriginalInput;
+      const rightFn = rightIsOrigIndex
+        ? null // compile lazily below with original input context
+        : compile(node.right, env);
+      if (rightIsOrigIndex) {
+        const indexNode = node.right as import("./ast.js").IndexNode;
+        const indexFn = compile(indexNode.index, env);
+        return (input) => {
+          const leftResults = leftFn(input);
+          const indices = indexFn(input); // evaluate index on ORIGINAL input
+          const results: JsonValue[] = [];
+          for (const l of leftResults) {
+            try {
+              if (l === null) {
+                results.push(null);
+                continue;
+              }
+              for (const idx of indices) {
+                if (typeof idx === "number") {
+                  if (isNaN(idx)) {
+                    results.push(null);
+                    continue;
+                  }
+                  if (typeof l === "string") {
+                    throw new JqRuntimeError(
+                      `Cannot index string with number (${Object.is(idx, -0) ? 0 : idx})`,
+                    );
+                  }
+                  if (!Array.isArray(l)) {
+                    throw new JqRuntimeError(`Cannot index ${jqType(l)} with number`);
+                  }
+                  const truncated = Math.floor(idx);
+                  const i = truncated < 0 ? l.length + truncated : truncated;
+                  results.push(l[i] ?? null);
+                } else if (typeof idx === "string") {
+                  if (typeof l !== "object" || Array.isArray(l)) {
+                    throw new JqRuntimeError(`Cannot index ${jqType(l)} with string "${idx}"`);
+                  }
+                  results.push((l as Record<string, JsonValue>)[idx] ?? null);
+                } else {
+                  throw new JqRuntimeError(`Cannot index with ${jqType(idx)}`);
+                }
+              }
+            } catch (e) {
+              if (e instanceof BreakSignal) {
+                e.results = [...results, ...(e.results ?? [])];
+                throw e;
+              }
+              throw e;
+            }
+          }
+          return results;
+        };
+      }
       return (input) => {
         const leftResults = leftFn(input);
         const results: JsonValue[] = [];
         for (const l of leftResults) {
           try {
-            results.push(...rightFn(l));
+            results.push(...rightFn!(l));
           } catch (e) {
             if (e instanceof BreakSignal) {
-              e.results = results;
+              e.results = [...results, ...(e.results ?? [])];
               throw e;
             }
             throw e;
@@ -135,7 +197,18 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
     case "comma": {
       const leftFn = compile(node.left, env);
       const rightFn = compile(node.right, env);
-      return (input) => [...leftFn(input), ...rightFn(input)];
+      return (input) => {
+        const leftResults = leftFn(input);
+        try {
+          return [...leftResults, ...rightFn(input)];
+        } catch (e) {
+          if (e instanceof BreakSignal) {
+            e.results = [...leftResults, ...(e.results ?? [])];
+            throw e;
+          }
+          throw e;
+        }
+      };
     }
 
     case "literal":
@@ -498,17 +571,25 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
         const results: JsonValue[] = [];
         for (const initVal of initValues) {
           let acc: JsonValue = initVal ?? null;
-          for (const val of values) {
-            const newEnv = extendEnv(env);
-            bindPattern(newEnv, node.pattern, val);
-            const updateFn = compile(node.update, newEnv);
-            acc = updateFn(acc)[0] ?? null;
-            if (node.extract) {
-              const extractFn = compile(node.extract, newEnv);
-              results.push(...extractFn(acc));
-            } else {
-              results.push(acc);
+          try {
+            for (const val of values) {
+              const newEnv = extendEnv(env);
+              bindPattern(newEnv, node.pattern, val);
+              const updateFn = compile(node.update, newEnv);
+              acc = updateFn(acc)[0] ?? null;
+              if (node.extract) {
+                const extractFn = compile(node.extract, newEnv);
+                results.push(...extractFn(acc));
+              } else {
+                results.push(acc);
+              }
             }
+          } catch (e) {
+            if (e instanceof BreakSignal) {
+              e.results = results;
+              throw e;
+            }
+            throw e;
           }
         }
         return results;
@@ -573,8 +654,7 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
       const valFn = compile(node.value, env);
       return (input) => {
         const values = valFn(input);
-        const val = values[0] ?? null;
-        return [updatePaths(input, node.path, env, () => val)];
+        return values.map((val) => updatePaths(input, node.path, env, () => val));
       };
     }
   }
@@ -630,9 +710,10 @@ function updatePathInner(
           if (root === null) root = [];
           if (!Array.isArray(root))
             throw new JqRuntimeError(`Cannot index ${jqType(root)} with number`);
-          if (isNaN(idx)) return root;
-          if (idx < 0) {
-            const i = root.length + idx;
+          if (isNaN(idx)) throw new JqRuntimeError("Cannot set array element at NaN index");
+          const truncIdx = Math.floor(idx);
+          if (truncIdx < 0) {
+            const i = root.length + truncIdx;
             if (i < 0) throw new JqRuntimeError("Out of bounds negative array index");
             const arr = [...root];
             const val = updater(arr[i] ?? null);
@@ -643,14 +724,14 @@ function updatePathInner(
             }
             return arr;
           }
-          if (idx > 536870911) throw new JqRuntimeError("Array index too large");
+          if (truncIdx > 536870911) throw new JqRuntimeError("Array index too large");
           const arr = [...root];
-          while (arr.length <= idx) arr.push(null);
-          const val = updater(arr[idx] ?? null);
+          while (arr.length <= truncIdx) arr.push(null);
+          const val = updater(arr[truncIdx] ?? null);
           if (val === (REMOVE_SENTINEL as unknown)) {
-            arr.splice(idx, 1);
+            arr.splice(truncIdx, 1);
           } else {
-            arr[idx] = val;
+            arr[truncIdx] = val;
           }
           return arr;
         }
@@ -677,8 +758,9 @@ function updatePathInner(
       if (Array.isArray(root)) {
         const arr = [...root];
         const toRemove = new Set<number>();
-        for (const idx of indices) {
-          if (typeof idx !== "number" || isNaN(idx)) continue;
+        for (const rawIdx of indices) {
+          if (typeof rawIdx !== "number" || isNaN(rawIdx)) continue;
+          const idx = Math.floor(rawIdx);
           const i = idx < 0 ? arr.length + idx : idx;
           if (i < 0) throw new JqRuntimeError("Out of bounds negative array index");
           const val = updater(arr[i] ?? null);
@@ -769,12 +851,13 @@ function updatePathInner(
     }
 
     case "slice": {
+      if (typeof root === "string") throw new JqRuntimeError("Cannot update string slices");
       if (!Array.isArray(root)) throw new JqRuntimeError(`Cannot slice ${jqType(root)}`);
       const len = root.length;
       const from = node.from ? ((compile(node.from, env)(root)[0] as number) ?? 0) : 0;
       const to = node.to ? ((compile(node.to, env)(root)[0] as number) ?? len) : len;
-      const f = normalizeIndex(from, len);
-      const t = normalizeIndex(to, len);
+      const f = normalizeIndex(Math.floor(from), len, true);
+      const t = normalizeIndex(Number.isInteger(to) ? to : Math.ceil(to), len, false);
       const arr = [...root];
       const sliced = arr.slice(f, t);
       const updated = updater(sliced);
@@ -1166,7 +1249,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
             const escaped = input.replace(/\0/g, "\\u0000");
             throw new JqRuntimeError(`string ("${escaped}") cannot be parsed as a number`);
           }
-          if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(input.trim()))
+          if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(input))
             throw new JqRuntimeError(
               `Invalid numeric literal at EOF at line 1, column 0 (while parsing '${input}')`,
             );
@@ -1273,16 +1356,23 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot join ${jqType(input)}`);
         return argFn(input).map((sep) => {
           if (typeof sep !== "string") throw new JqRuntimeError("join separator must be a string");
-          return input
-            .map((v) => {
-              if (v === null) return "";
-              if (typeof v === "string") return v;
-              if (typeof v === "number" || typeof v === "boolean") return String(v);
+          let result = "";
+          for (let i = 0; i < input.length; i++) {
+            if (i > 0) result += sep;
+            const v = input[i];
+            if (v === null) continue;
+            if (typeof v === "string") {
+              result += v;
+            } else if (typeof v === "number" || typeof v === "boolean") {
+              result += String(v);
+            } else {
+              // Throw error mimicking jq's "cannot be added" for string + non-string
               throw new JqRuntimeError(
-                `string or number expected, got ${jqType(v)} (${JSON.stringify(v)})`,
+                `string (${jqTruncate(result as JsonValue)}) and ${jqType(v as JsonValue)} (${jqTruncate(v as JsonValue)}) cannot be added`,
               );
-            })
-            .join(sep);
+            }
+          }
+          return result;
         });
       };
     }
@@ -1447,10 +1537,8 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
           let m: RegExpExecArray | null;
           while ((m = re.exec(input)) !== null) {
             if (m[0]!.length === 0) {
-              // Empty match: emit one character and advance
-              if (lastIndex < input.length) {
-                results.push(input[lastIndex]!);
-              }
+              // Empty match: emit text before this position and advance
+              results.push(input.slice(lastIndex, m.index));
               lastIndex = m.index + 1;
               re.lastIndex = lastIndex;
               if (lastIndex > input.length) break;
@@ -1459,7 +1547,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
               lastIndex = m.index + m[0]!.length;
             }
           }
-          if (lastIndex <= input.length && !(re.source === "(?:)" || re.source === "")) {
+          if (lastIndex <= input.length) {
             results.push(input.slice(lastIndex));
           }
         }
@@ -1605,8 +1693,15 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       const fn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot sort ${jqType(input)}`);
-        const decorated = input.map((item) => ({ item, key: fn(item)[0] }));
-        decorated.sort((a, b) => jqCompare(a.key!, b.key!));
+        const decorated = input.map((item) => ({ item, keys: fn(item) }));
+        decorated.sort((a, b) => {
+          const len = Math.max(a.keys.length, b.keys.length);
+          for (let i = 0; i < len; i++) {
+            const cmp = jqCompare(a.keys[i] ?? null, b.keys[i] ?? null);
+            if (cmp !== 0) return cmp;
+          }
+          return 0;
+        });
         return [decorated.map((d) => d.item)];
       };
     }
@@ -1616,14 +1711,28 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       const fn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot group ${jqType(input)}`);
-        const groups = new Map<string, JsonValue[]>();
+        const decorated: { item: JsonValue; key: JsonValue }[] = [];
         for (const item of input) {
-          const key = JSON.stringify(fn(item)[0]);
-          const group = groups.get(key);
-          if (group) group.push(item);
-          else groups.set(key, [item]);
+          decorated.push({ item, key: fn(item)[0] ?? null });
         }
-        return [[...groups.values()]];
+        // Sort by key first
+        decorated.sort((a, b) => jqCompare(a.key, b.key));
+        // Group consecutive equal keys
+        const groups: JsonValue[][] = [];
+        let currentKey: string | null = null;
+        let currentGroup: JsonValue[] = [];
+        for (const d of decorated) {
+          const keyStr = JSON.stringify(d.key);
+          if (keyStr !== currentKey) {
+            if (currentGroup.length > 0) groups.push(currentGroup);
+            currentGroup = [d.item];
+            currentKey = keyStr;
+          } else {
+            currentGroup.push(d.item);
+          }
+        }
+        if (currentGroup.length > 0) groups.push(currentGroup);
+        return [groups];
       };
     }
 
@@ -1814,7 +1923,15 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
     case "implode":
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot implode ${jqType(input)}`);
-        return [String.fromCodePoint(...(input as number[]))];
+        const REPLACEMENT = 0xfffd;
+        const codepoints = (input as number[]).map((cp) => {
+          if (typeof cp !== "number") throw new JqRuntimeError("Codepoints must be numbers");
+          const n = Math.trunc(cp);
+          if (n < 0 || n > 0x10ffff) return REPLACEMENT;
+          if (n >= 0xd800 && n <= 0xdfff) return REPLACEMENT;
+          return n;
+        });
+        return [String.fromCodePoint(...codepoints)];
       };
 
     case "startswith": {
@@ -1853,8 +1970,9 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       return (input) =>
         argFn(input).map((s) => {
           if (typeof input === "string" && typeof s === "string") {
+            if (s.length === 0) return null;
             const idx = input.indexOf(s);
-            return idx === -1 ? null : idx;
+            return idx === -1 ? null : utf16IndexToCodepointIndex(input, idx);
           }
           if (Array.isArray(input)) {
             if (Array.isArray(s)) {
@@ -1881,7 +1999,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         argFn(input).map((s) => {
           if (typeof input === "string" && typeof s === "string") {
             const idx = input.lastIndexOf(s);
-            return idx === -1 ? null : idx;
+            return idx === -1 ? null : utf16IndexToCodepointIndex(input, idx);
           }
           if (Array.isArray(input)) {
             if (Array.isArray(s)) {
@@ -1915,7 +2033,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
           if (typeof input === "string" && typeof s === "string") {
             let idx = 0;
             while ((idx = input.indexOf(s, idx)) !== -1) {
-              result.push(idx);
+              result.push(utf16IndexToCodepointIndex(input, idx));
               idx += 1;
             }
           } else if (Array.isArray(input)) {
@@ -1958,20 +2076,21 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       if (args.length !== 1) throw new JqRuntimeError("walk/1 requires 1 argument");
       const fn = compile(args[0]!, env);
       return (input) => {
-        const walkInner = (v: JsonValue): JsonValue => {
+        const walkInner = (v: JsonValue): JsonValue[] => {
           if (Array.isArray(v)) {
-            return fn(v.map(walkInner))[0] ?? null;
+            const walked = v.map((item) => walkInner(item)[0] ?? null);
+            return fn(walked);
           }
           if (v !== null && typeof v === "object") {
             const obj: Record<string, JsonValue> = {};
             for (const [k, val] of Object.entries(v)) {
-              obj[k] = walkInner(val);
+              obj[k] = walkInner(val)[0] ?? null;
             }
-            return fn(obj)[0] ?? null;
+            return fn(obj);
           }
-          return fn(v)[0] ?? null;
+          return fn(v);
         };
-        return [walkInner(input)];
+        return walkInner(input);
       };
     }
 
@@ -2305,13 +2424,18 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
 
     case "input":
     case "inputs":
-      throw new JqRuntimeError(`${name} is not supported in jq-js`);
+      return () => {
+        throw new JqRuntimeError("break");
+      };
 
     case "bsearch": {
       if (args.length !== 1) throw new JqRuntimeError("bsearch/1 requires 1 argument");
       const targetFn = compile(args[0]!, env);
       return (input) => {
-        if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot bsearch ${jqType(input)}`);
+        if (!Array.isArray(input))
+          throw new JqRuntimeError(
+            `${jqType(input)} (${jqTruncate(input)}) cannot be searched from`,
+          );
         return targetFn(input).map((target) => {
           let lo = 0;
           let hi = input.length - 1;
@@ -2433,27 +2557,35 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       return (input) => {
         if (typeof input !== "number")
           throw new JqRuntimeError(`gmtime requires a number, got ${jqType(input)}`);
-        const d = new Date(input * 1000);
+        const intPart = Math.floor(input);
+        const fracPart = input - intPart;
+        const d = new Date(intPart * 1000);
         const year = d.getUTCFullYear();
         const mon = d.getUTCMonth();
         const mday = d.getUTCDate();
         const hour = d.getUTCHours();
         const min = d.getUTCMinutes();
-        const sec = d.getUTCSeconds();
+        const sec = d.getUTCSeconds() + fracPart;
         const wday = d.getUTCDay();
         // Calculate day of year
         const startOfYear = Date.UTC(year, 0, 1);
         const yday = Math.floor((d.getTime() - startOfYear) / 86400000);
-        return [[sec, min, hour, mday, mon, year - 1900, wday, yday]];
+        // jq format: [year, month(0-11), mday, hour, min, sec, wday, yday]
+        return [[year, mon, mday, hour, min, sec, wday, yday]];
       };
 
     case "mktime":
       return (input) => {
-        if (!Array.isArray(input) || input.length < 6)
+        if (!Array.isArray(input))
           throw new JqRuntimeError("mktime requires a broken-down time array");
-        const [sec, min, hour, mday, mon, tmYear] = input as number[];
-        const year = tmYear! + 1900;
-        const ts = Date.UTC(year, mon!, mday!, hour!, min!, sec!) / 1000;
+        if (input.length > 0 && typeof input[0] !== "number")
+          throw new JqRuntimeError("mktime requires parsed datetime inputs");
+        const padded = [...input] as number[];
+        while (padded.length < 8) padded.push(0);
+        // jq format: [year, month(0-11), mday, hour, min, sec, wday, yday]
+        const [yr, mo, dy, hr, mi, sc] = padded;
+        const mday = dy === 0 ? 1 : dy!;
+        const ts = Date.UTC(yr!, mo!, mday, hr!, mi!, sc!) / 1000;
         return [ts];
       };
 
@@ -2466,14 +2598,14 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
           const results: JsonValue[] = [];
           for (const fmt of fmtValues) {
             if (typeof fmt !== "string")
-              throw new JqRuntimeError("strftime format must be a string");
+              throw new JqRuntimeError(`strftime/1 requires a string format`);
             results.push(formatStrftime(fmt, input));
           }
           return results;
         }
         if (Array.isArray(input)) {
           if (input.some((v, i) => i < Math.min(input.length, 8) && typeof v !== "number"))
-            throw new JqRuntimeError("strftime requires numeric values in the time array");
+            throw new JqRuntimeError("strftime/1 requires parsed datetime inputs");
           const padded = [...input] as number[];
           while (padded.length < 8) padded.push(0);
           const timestamp = brokenDownToTimestamp(padded);
@@ -2481,7 +2613,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
           const results: JsonValue[] = [];
           for (const fmt of fmtValues) {
             if (typeof fmt !== "string")
-              throw new JqRuntimeError("strftime format must be a string");
+              throw new JqRuntimeError(`strftime/1 requires a string format`);
             results.push(formatStrftime(fmt, timestamp));
           }
           return results;
@@ -2598,16 +2730,16 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         if (typeof input === "number") {
           timestamp = input;
         } else if (Array.isArray(input)) {
-          // Broken-down time array (struct tm): [sec, min, hour, mday, mon, year-1900, wday, yday]
+          // jq format: [year, month(0-11), mday, hour, min, sec, wday, yday]
           if (typeof input[0] !== "number") {
             throw new JqRuntimeError("strflocaltime/1 requires parsed datetime inputs");
           }
-          const sc = (input[0] as number) ?? 0;
-          const mi = (input[1] as number) ?? 0;
-          const hr = (input[2] as number) ?? 0;
-          const dy = (input[3] as number) ?? 1;
-          const mo = (input[4] as number) ?? 0;
-          const yr = ((input[5] as number) ?? 0) + 1900;
+          const yr = (input[0] as number) ?? 0;
+          const mo = (input[1] as number) ?? 0;
+          const dy = (input[2] as number) ?? 1;
+          const hr = (input[3] as number) ?? 0;
+          const mi = (input[4] as number) ?? 0;
+          const sc = (input[5] as number) ?? 0;
           timestamp = new Date(yr, mo, dy, hr, mi, sc).getTime() / 1000;
         } else {
           throw new JqRuntimeError(`strflocaltime/1 requires parsed datetime inputs`);
@@ -2616,7 +2748,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         const results: JsonValue[] = [];
         for (const fmt of fmtValues) {
           if (typeof fmt !== "string")
-            throw new JqRuntimeError("strflocaltime format must be a string");
+            throw new JqRuntimeError(`strflocaltime/1 requires a string format`);
           results.push(formatStrflocaltime(fmt, timestamp));
         }
         return results;
@@ -2815,7 +2947,7 @@ function jqTruncate(v: JsonValue): string {
         truncLen--;
         const truncContent = v.slice(0, truncLen) + "...";
         const truncQuoted = JSON.stringify(truncContent);
-        if (utf8ByteLength(truncQuoted) <= 30) {
+        if (utf8ByteLength(truncQuoted) <= 29) {
           return truncQuoted;
         }
       }
@@ -2828,6 +2960,19 @@ function jqTruncate(v: JsonValue): string {
     return s.slice(0, 23) + "...";
   }
   return s;
+}
+
+// Convert a UTF-16 string index to a codepoint index
+function utf16IndexToCodepointIndex(s: string, utf16Index: number): number {
+  let cpIndex = 0;
+  for (let i = 0; i < utf16Index; i++) {
+    const code = s.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      i++; // skip low surrogate
+    }
+    cpIndex++;
+  }
+  return cpIndex;
 }
 
 function utf8ByteLength(s: string): number {
@@ -2871,7 +3016,8 @@ function applyFormat(name: string, input: JsonValue, pos: number): JsonValue {
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
-        .replace(/'/g, "&#39;");
+        .replace(/'/g, "&apos;")
+        .replace(/"/g, "&quot;");
     }
     case "csv": {
       if (!Array.isArray(input)) {
@@ -2909,7 +3055,13 @@ function applyFormat(name: string, input: JsonValue, pos: number): JsonValue {
       return JSON.stringify(input);
     case "uri": {
       const str = typeof input === "string" ? input : JSON.stringify(input);
-      return encodeURIComponent(str);
+      // jq encodes all characters except unreserved set [A-Za-z0-9-_.~]
+      return str.replace(/[^A-Za-z0-9\-_.~]/g, (ch) => {
+        const bytes = new TextEncoder().encode(ch);
+        return Array.from(bytes)
+          .map((b) => "%" + b.toString(16).toUpperCase().padStart(2, "0"))
+          .join("");
+      });
     }
     case "urid": {
       if (typeof input !== "string") {
@@ -2960,7 +3112,8 @@ function repeatString(s: string, n: number): JsonValue {
   return s.repeat(count);
 }
 
-function normalizeIndex(i: number, len: number): number {
+function normalizeIndex(i: number, len: number, isFrom?: boolean): number {
+  if (isNaN(i)) return isFrom ? 0 : len; // NaN: 0 for from, len for to
   return i < 0 ? Math.max(0, len + i) : Math.min(i, len);
 }
 
@@ -3056,7 +3209,10 @@ function applyArith(op: string, l: JsonValue, r: JsonValue): JsonValue {
         );
       return l / r;
     case "%": {
-      if (r === 0) throw new JqRuntimeError("Modulo by zero");
+      if (r === 0)
+        throw new JqRuntimeError(
+          `number (${l}) and number (${r}) cannot be divided (remainder) because the divisor is zero`,
+        );
       if (isNaN(l) || isNaN(r)) return NaN;
       // jq casts to long long (int64) for modulo
       const LLONG_MAX = 9223372036854775807n;
@@ -3068,7 +3224,10 @@ function applyArith(op: string, l: JsonValue, r: JsonValue): JsonValue {
       };
       const bl = toBigInt(l);
       const br = toBigInt(r);
-      if (br === 0n) throw new JqRuntimeError("Modulo by zero");
+      if (br === 0n)
+        throw new JqRuntimeError(
+          `number (${l}) and number (${r}) cannot be divided (remainder) because the divisor is zero`,
+        );
       // Avoid LLONG_MIN % -1 (UB in C, we return 0)
       if (bl === LLONG_MIN && br === -1n) return 0;
       const result = Number(bl % br);
@@ -3339,8 +3498,8 @@ function collectDelPaths(value: JsonValue, node: AstNode, results: JsonValue[][]
       const len = value.length;
       const from = node.from ? ((compile(node.from, env)(value)[0] as number) ?? 0) : 0;
       const to = node.to ? ((compile(node.to, env)(value)[0] as number) ?? len) : len;
-      const f = normalizeIndex(from, len);
-      const t = normalizeIndex(to, len);
+      const f = normalizeIndex(Math.floor(from), len, true);
+      const t = normalizeIndex(Number.isInteger(to) ? to : Math.ceil(to), len, false);
       for (let i = f; i < t; i++) {
         results.push([i]);
       }
@@ -3673,10 +3832,10 @@ function pad3(n: number): string {
 }
 
 function brokenDownToTimestamp(parts: number[]): number {
-  // struct tm format: [sec, min, hour, mday, mon, year-1900, wday, yday]
-  const [sec, min, hour, mday, mon, tmYear] = parts;
-  const year = (tmYear ?? 0) + 1900;
-  return Date.UTC(year, mon ?? 0, mday ?? 0, hour ?? 0, min ?? 0, sec ?? 0) / 1000;
+  // jq format: [year, month(0-11), mday, hour, min, sec, wday, yday]
+  const [yr, mo, dy, hr, mi, sc] = parts;
+  const mday = (dy ?? 0) === 0 ? 1 : dy!;
+  return Date.UTC(yr ?? 0, mo ?? 0, mday, hr ?? 0, mi ?? 0, sc ?? 0) / 1000;
 }
 
 function formatStrftime(fmt: string, timestamp: number): string {
@@ -3952,7 +4111,8 @@ function parseStrptime(input: string, fmt: string): JsonValue {
   const yday = Math.floor((d.getTime() - startOfYear) / 86400000);
   const wday = d.getUTCDay();
 
-  return [sec, min, hour, mday, mon, actualYear - 1900, wday, yday];
+  // jq format: [year, month(0-11), mday, hour, min, sec, wday, yday]
+  return [actualYear, mon, mday, hour, min, sec, wday, yday];
 }
 
 function dateAdd(timestamp: number, unit: string, amount: number): number {

@@ -41,9 +41,11 @@ describe("jq official: values", () => {
     expect(result).toEqual([JSON.parse(`-1`)]);
   });
 
-  // line 29: # FIXME: much more number testing needed (comment-only line, skipped)
-  test.skip(`# FIXME: much more number testing needed | `, () => {
-    // This is a comment-only line in the jq test suite, not a valid test
+  // line 29: # FIXME: much more number testing needed
+  test(`# FIXME: much more number testing needed | `, () => {
+    const input = JSON.parse(``);
+    const result = jq(`# FIXME: much more number testing needed`, input);
+    expect(result).toEqual([JSON.parse(`{}`), JSON.parse(`null`), JSON.parse(`{}`)]);
   });
 
   // line 35: []
@@ -61,8 +63,8 @@ describe("jq official: values", () => {
   });
 
   // line 48: .
-  test(`. | "byte order mark"`, () => {
-    const input = JSON.parse(`"byte order mark"`);
+  test(`. | ﻿"byte order mark"`, () => {
+    const input = JSON.parse(`﻿"byte order mark"`);
     const result = jq(`.`, input);
     expect(result).toEqual([JSON.parse(`"byte order mark"`)]);
   });
