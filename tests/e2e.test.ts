@@ -154,7 +154,12 @@ describe("jq-js e2e", () => {
     });
 
     test("values", () => {
-      expect(jq("values", { a: 1, b: 2 })).toEqual([[1, 2]]);
+      // values as type selector: passes through non-null values
+      expect(jq("values", { a: 1, b: 2 })).toEqual([{ a: 1, b: 2 }]);
+      expect(jq("values", null)).toEqual([]);
+      expect(jq("values", 42)).toEqual([42]);
+      // To get object values, use [.[]]
+      expect(jq("[.[]]", { a: 1, b: 2 })).toEqual([[1, 2]]);
     });
 
     test("type", () => {
