@@ -139,6 +139,14 @@ class Parser {
             right: { kind: 'field', name: name.value, pos: name.pos },
             pos: left.pos,
           };
+        } else if (this.peek().type === TokenType.String) {
+          const str = this.advance();
+          left = {
+            kind: 'pipe',
+            left,
+            right: { kind: 'field', name: str.value, pos: str.pos },
+            pos: left.pos,
+          };
         } else {
           throw new JqParseError('Expected field name after "."', this.peek().pos);
         }
@@ -210,6 +218,11 @@ class Parser {
         if (this.peek().type === TokenType.Ident) {
           const name = this.advance();
           return { kind: 'field', name: name.value, pos: token.pos };
+        }
+        // Check for ."foo" (quoted field access)
+        if (this.peek().type === TokenType.String) {
+          const str = this.advance();
+          return { kind: 'field', name: str.value, pos: token.pos };
         }
         // Check for .[
         if (this.peek().type === TokenType.LBracket) {
