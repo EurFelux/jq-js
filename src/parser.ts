@@ -53,8 +53,9 @@ class Parser {
         const body = this.parsePipe();
         left = { kind: "as", expr: left, pattern, alternativePatterns, body, pos: left.pos };
       } else if (this.match(TokenType.Pipe)) {
-        const right = this.parseComma();
+        const right = this.parsePipe();
         left = { kind: "pipe", left, right, pos: left.pos };
+        break; // pipe is right-associative, stop the loop
       } else if (this.isUpdateOp()) {
         const op = this.advance().value as "|=" | "+=" | "-=" | "*=" | "/=" | "%=" | "//=";
         const body = this.parseComma();
