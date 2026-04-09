@@ -309,11 +309,14 @@ describe("jq-js e2e", () => {
     expect(jq(filter, input)).toEqual(expected);
   });
 
-  // Try-catch
+  // Try-catch (null | .a returns null in jq, only non-object types throw)
   test.each([
-    ["try .a", null, []],
-    ['try .a catch "err"', null, ["err"]],
-    [".a?", null, []],
+    ["try .a", null, [null]],
+    ['try .a catch "err"', null, [null]],
+    [".a?", null, [null]],
+    ["try .a", 42, []],
+    ['try .a catch "err"', 42, ["err"]],
+    [".a?", 42, []],
   ])("try-catch: jq(%j, %j) = %j", (filter, input, expected) => {
     expect(jq(filter, input)).toEqual(expected);
   });
@@ -336,9 +339,10 @@ describe("jq-js e2e", () => {
     expect(jq("-(1 + 2)", null)).toEqual([-3]);
   });
 
-  // Optional field access
+  // Optional field access (null returns null, non-object types return empty)
   test("optional on non-object", () => {
     expect(jq(".a?", 42)).toEqual([]);
-    expect(jq(".a?", null)).toEqual([]);
+    expect(jq(".a?", null)).toEqual([null]);
+    expect(jq(".a?", "str")).toEqual([]);
   });
 });

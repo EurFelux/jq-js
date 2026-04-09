@@ -1,4 +1,4 @@
-import { compile } from "./interpreter.js";
+import { run } from "./interpreter.js";
 import { lex } from "./lexer.js";
 import { parse } from "./parser.js";
 import type { JsonValue } from "./types.js";
@@ -6,8 +6,7 @@ import type { JsonValue } from "./types.js";
 export function jq(filter: string, input: JsonValue): JsonValue[] {
   const tokens = lex(filter);
   const ast = parse(tokens);
-  const fn = compile(ast);
-  return fn(input);
+  return run(ast, input);
 }
 
 export { compile } from "./interpreter.js";
