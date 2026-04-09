@@ -1,4 +1,4 @@
-import type { AstNode, ObjectEntry } from './ast.js';
+import type { AstNode, BindingPattern, ObjectEntry } from './ast.js';
 import { JqParseError } from './errors.js';
 import { type Token, TokenType } from './tokens.js';
 
@@ -39,14 +39,90 @@ class Parser {
     return null;
   }
 
-  // pipe = comma ("|" comma)*
+  // pipe = comma ("as" pattern "|" pipe | "|" comma)*
   private parsePipe(): AstNode {
     let left = this.parseComma();
-    while (this.match(TokenType.Pipe)) {
-      const right = this.parseComma();
-      left = { kind: 'pipe', left, right, pos: left.pos };
+    while (true) {
+      if (this.match(TokenType.As)) {
+        const pattern = this.parsePattern();
+        this.expect(TokenType.Pipe);
+        const body = this.parsePipe();
+        left = { kind: 'as', expr: left, pattern, body, pos: left.pos };
+      } else if (this.match(TokenType.Pipe)) {
+        const right = this.parseComma();
+        left = { kind: 'pipe', left, right, pos: left.pos };
+      } else {
+        break;
+      }
     }
     return left;
+  }
+
+  private parsePattern(): BindingPattern {
+    if (this.peek().type === TokenType.Variable) {
+      const token = this.advance();
+      return { type: 'variable', name: token.value };
+    }
+    if (this.peek().type === TokenType.LBracket) {
+      this.advance();
+      const elements: BindingPattern[] = [];
+      if (this.peek().type !== TokenType.RBracket) {
+        elements.push(this.parsePattern());
+        while (this.match(TokenType.Comma)) {
+          elements.push(this.parsePattern());
+        }
+      }
+      this.expect(TokenType.RBracket);
+      return { type: 'array', elements };
+    }
+    if (this.peek().type === TokenType.LBrace) {
+      this.advance();
+      const entries: { key: AstNode; pattern: BindingPattern }[] = [];
+      if (this.peek().type !== TokenType.RBrace) {
+        entries.push(this.parsePatternObjectEntry());
+        while (this.match(TokenType.Comma)) {
+          entries.push(this.parsePatternObjectEntry());
+        }
+      }
+      this.expect(TokenType.RBrace);
+      return { type: 'object', entries };
+    }
+    throw new JqParseError('Expected binding pattern ($var, [...], or {...})', this.peek().pos);
+  }
+
+  private parsePatternObjectEntry(): { key: AstNode; pattern: BindingPattern } {
+    // {$var} shorthand — key is var name without $
+    if (this.peek().type === TokenType.Variable) {
+      const varToken = this.peek();
+      // Check if next is colon (key: $pattern) or comma/rbrace (shorthand)
+      if (this.tokens[this.pos + 1]?.type === TokenType.Colon) {
+        // name: $var — but this is {name: $var}
+        // Actually jq doesn't do this with $var as key, it's {key: $var}
+      }
+      const pattern = this.parsePattern();
+      return {
+        key: { kind: 'literal', value: varToken.value.slice(1), pos: varToken.pos },
+        pattern,
+      };
+    }
+    // key: $pattern
+    let key: AstNode;
+    if (this.peek().type === TokenType.Ident) {
+      const name = this.advance();
+      key = { kind: 'literal', value: name.value, pos: name.pos };
+    } else if (this.peek().type === TokenType.String) {
+      const str = this.advance();
+      key = { kind: 'literal', value: str.value, pos: str.pos };
+    } else if (this.peek().type === TokenType.LParen) {
+      this.advance();
+      key = this.parsePipe();
+      this.expect(TokenType.RParen);
+    } else {
+      throw new JqParseError('Expected object pattern key', this.peek().pos);
+    }
+    this.expect(TokenType.Colon);
+    const pattern = this.parsePattern();
+    return { key, pattern };
   }
 
   // comma = alternative ("," alternative)*
@@ -298,6 +374,28 @@ class Parser {
       case TokenType.Try:
         return this.parseTry();
 
+      case TokenType.Variable:
+        this.advance();
+        return { kind: 'var_ref', name: token.value, pos: token.pos };
+
+      case TokenType.Reduce:
+        return this.parseReduce();
+
+      case TokenType.Foreach:
+        return this.parseForeach();
+
+      case TokenType.Label:
+        return this.parseLabel();
+
+      case TokenType.Break: {
+        this.advance();
+        const name = this.expect(TokenType.Variable);
+        return { kind: 'break', name: name.value, pos: token.pos };
+      }
+
+      case TokenType.Def:
+        return this.parseDef();
+
       case TokenType.Ident:
         return this.parseFuncOrIdent();
 
@@ -376,6 +474,15 @@ class Parser {
       };
     }
 
+    // {$var} shorthand — equivalent to {(var_name): $var}
+    if (this.peek().type === TokenType.Variable && this.tokens[this.pos + 1]?.type !== TokenType.Colon) {
+      const varToken = this.advance();
+      return {
+        key: { kind: 'literal', value: varToken.value.slice(1), pos: varToken.pos },
+        value: { kind: 'var_ref', name: varToken.value, pos: varToken.pos },
+      };
+    }
+
     // key: value
     let key: AstNode;
     if (this.peek().type === TokenType.Ident) {
@@ -388,6 +495,9 @@ class Parser {
       this.advance();
       key = this.parsePipe();
       this.expect(TokenType.RParen);
+    } else if (this.peek().type === TokenType.Variable) {
+      const varToken = this.advance();
+      key = { kind: 'literal', value: varToken.value.slice(1), pos: varToken.pos };
     } else {
       throw new JqParseError('Expected object key', this.peek().pos);
     }
@@ -454,6 +564,70 @@ class Parser {
 
     // Zero-arg function call (like length, keys, etc.)
     return { kind: 'func', name: name.value, args: [], pos: name.pos };
+  }
+
+  // reduce EXPR as $VAR (INIT; UPDATE)
+  private parseReduce(): AstNode {
+    const token = this.expect(TokenType.Reduce);
+    const expr = this.parsePostfix();
+    this.expect(TokenType.As);
+    const pattern = this.parsePattern();
+    this.expect(TokenType.LParen);
+    const init = this.parsePipe();
+    this.expect(TokenType.Semicolon);
+    const update = this.parsePipe();
+    this.expect(TokenType.RParen);
+    return { kind: 'reduce', expr, pattern, init, update, pos: token.pos };
+  }
+
+  // foreach EXPR as $VAR (INIT; UPDATE; EXTRACT?)
+  private parseForeach(): AstNode {
+    const token = this.expect(TokenType.Foreach);
+    const expr = this.parsePostfix();
+    this.expect(TokenType.As);
+    const pattern = this.parsePattern();
+    this.expect(TokenType.LParen);
+    const init = this.parsePipe();
+    this.expect(TokenType.Semicolon);
+    const update = this.parsePipe();
+    let extract: AstNode | null = null;
+    if (this.match(TokenType.Semicolon)) {
+      extract = this.parsePipe();
+    }
+    this.expect(TokenType.RParen);
+    return { kind: 'foreach', expr, pattern, init, update, extract, pos: token.pos };
+  }
+
+  // label $NAME | BODY
+  private parseLabel(): AstNode {
+    const token = this.expect(TokenType.Label);
+    const name = this.expect(TokenType.Variable);
+    this.expect(TokenType.Pipe);
+    const body = this.parsePipe();
+    return { kind: 'label', name: name.value, body, pos: token.pos };
+  }
+
+  // def NAME(PARAMS): BODY; REST
+  private parseDef(): AstNode {
+    const token = this.expect(TokenType.Def);
+    const name = this.expect(TokenType.Ident);
+    const params: string[] = [];
+
+    if (this.match(TokenType.LParen)) {
+      if (this.peek().type !== TokenType.RParen) {
+        params.push(this.expect(TokenType.Ident).value);
+        while (this.match(TokenType.Semicolon)) {
+          params.push(this.expect(TokenType.Ident).value);
+        }
+      }
+      this.expect(TokenType.RParen);
+    }
+
+    this.expect(TokenType.Colon);
+    const body = this.parsePipe();
+    this.expect(TokenType.Semicolon);
+    const next = this.parsePipe();
+    return { kind: 'def', name: name.value, params, body, next, pos: token.pos };
   }
 }
 

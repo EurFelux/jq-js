@@ -20,6 +20,13 @@ export type AstNode =
   | CommaNode
   | OptionalNode
   | AlternativeNode
+  | VarRefNode
+  | AsNode
+  | ReduceNode
+  | ForeachNode
+  | LabelNode
+  | BreakNode
+  | DefNode
   | StringInterpolationNode;
 
 export interface IdentityNode {
@@ -162,6 +169,66 @@ export interface AlternativeNode {
   kind: 'alternative';
   left: AstNode;
   right: AstNode;
+  pos: number;
+}
+
+export interface VarRefNode {
+  kind: 'var_ref';
+  name: string; // includes $ prefix
+  pos: number;
+}
+
+export type BindingPattern =
+  | { type: 'variable'; name: string }
+  | { type: 'array'; elements: BindingPattern[] }
+  | { type: 'object'; entries: { key: AstNode; pattern: BindingPattern }[] };
+
+export interface AsNode {
+  kind: 'as';
+  expr: AstNode;
+  pattern: BindingPattern;
+  body: AstNode;
+  pos: number;
+}
+
+export interface ReduceNode {
+  kind: 'reduce';
+  expr: AstNode;
+  pattern: BindingPattern;
+  init: AstNode;
+  update: AstNode;
+  pos: number;
+}
+
+export interface ForeachNode {
+  kind: 'foreach';
+  expr: AstNode;
+  pattern: BindingPattern;
+  init: AstNode;
+  update: AstNode;
+  extract: AstNode | null;
+  pos: number;
+}
+
+export interface LabelNode {
+  kind: 'label';
+  name: string;
+  body: AstNode;
+  pos: number;
+}
+
+export interface BreakNode {
+  kind: 'break';
+  name: string;
+  pos: number;
+}
+
+export interface DefNode {
+  kind: 'def';
+  name: string;
+  params: string[];
+  body: AstNode;
+  next: AstNode;
   pos: number;
 }
 

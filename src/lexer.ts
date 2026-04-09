@@ -15,6 +15,12 @@ const KEYWORDS: Record<string, TokenType> = {
   null: TokenType.Null,
   try: TokenType.Try,
   catch: TokenType.Catch,
+  as: TokenType.As,
+  def: TokenType.Def,
+  reduce: TokenType.Reduce,
+  foreach: TokenType.Foreach,
+  label: TokenType.Label,
+  break: TokenType.Break,
 };
 
 export function lex(input: string): Token[] {
@@ -111,6 +117,23 @@ export function lex(input: string): Token[] {
       if (i >= input.length) throw new JqLexError('Unterminated string', start);
       i++; // skip closing quote
       tokens.push({ type: TokenType.String, value, pos: start });
+      continue;
+    }
+
+    // Variables ($name)
+    if (ch === '$') {
+      const start = i;
+      i++; // skip $
+      while (
+        i < input.length &&
+        ((input[i]! >= 'a' && input[i]! <= 'z') ||
+          (input[i]! >= 'A' && input[i]! <= 'Z') ||
+          (input[i]! >= '0' && input[i]! <= '9') ||
+          input[i] === '_')
+      ) {
+        i++;
+      }
+      tokens.push({ type: TokenType.Variable, value: input.slice(start, i), pos: start });
       continue;
     }
 
