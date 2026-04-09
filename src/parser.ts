@@ -257,6 +257,9 @@ class Parser {
             right: { kind: "field", name: str.value, pos: str.pos },
             pos: left.pos,
           };
+        } else if (this.peek().type === TokenType.LBracket) {
+          // .foo.[...] — bracket access after dot
+          left = this.parseBracketPostfix(left);
         } else {
           throw new JqParseError('Expected field name after "."', this.peek().pos);
         }
@@ -533,7 +536,7 @@ class Parser {
     }
 
     this.expect(TokenType.Colon);
-    const value = this.parseLogic();
+    const value = this.parseAlternative();
     return { key, value };
   }
 
@@ -562,10 +565,10 @@ class Parser {
 
   private parseTry(): AstNode {
     const token = this.expect(TokenType.Try);
-    const expr = this.parsePostfix();
+    const expr = this.parseUnary();
     let catch_: AstNode | null = null;
     if (this.match(TokenType.Catch)) {
-      catch_ = this.parsePostfix();
+      catch_ = this.parseUnary();
     }
     return { kind: "try", expr, catch_, pos: token.pos };
   }

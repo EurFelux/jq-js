@@ -25,6 +25,20 @@ class BreakSignal {
   constructor(public label: string) {}
 }
 
+const REMOVE_SENTINEL = Symbol("remove");
+
+export function run(node: AstNode, input: JsonValue): JsonValue[] {
+  const results: JsonValue[] = [];
+  generateValues(
+    node,
+    emptyEnv(),
+    input,
+    (v) => results.push(v),
+    () => {},
+  );
+  return results;
+}
+
 export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
   switch (node.kind) {
     case "identity":
@@ -32,8 +46,9 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
 
     case "field":
       return (input) => {
-        if (input === null || typeof input !== "object" || Array.isArray(input)) {
-          throw new JqRuntimeError(`Cannot index ${jqType(input)} with string "${node.name}"`);
+        if (input === null) return [null];
+        if (typeof input !== "object" || Array.isArray(input)) {
+          throw new JqRuntimeError(`Cannot index ${jqType(input)} with string ("${node.name}")`);
         }
         return [input[node.name] ?? null];
       };
@@ -41,6 +56,7 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
     case "index": {
       const indexFn = compile(node.index, env);
       return (input) => {
+        if (input === null) return [null];
         const indices = indexFn(input);
         return indices.flatMap((idx) => {
           if (typeof idx === "number") {
@@ -51,7 +67,7 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
             return [input[i] ?? null];
           }
           if (typeof idx === "string") {
-            if (input === null || typeof input !== "object" || Array.isArray(input)) {
+            if (typeof input !== "object" || Array.isArray(input)) {
               throw new JqRuntimeError(`Cannot index ${jqType(input)} with string`);
             }
             return [input[idx] ?? null];
@@ -63,6 +79,7 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
 
     case "slice":
       return (input) => {
+        if (input === null) return [null];
         if (!Array.isArray(input) && typeof input !== "string") {
           throw new JqRuntimeError(`Cannot slice ${jqType(input)}`);
         }
@@ -80,9 +97,10 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
 
     case "iterate":
       return (input) => {
+        if (input === null) return [];
         if (Array.isArray(input)) return input;
-        if (input !== null && typeof input === "object") return Object.values(input);
-        throw new JqRuntimeError(`Cannot iterate over ${jqType(input)}`);
+        if (typeof input === "object") return Object.values(input);
+        throw new JqRuntimeError(`Cannot iterate over ${jqType(input)} (${jqTruncate(input)})`);
       };
 
     case "pipe": {
@@ -162,18 +180,27 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
       return compileBuiltin(node.name, node.args, node.pos, env);
 
     case "try": {
-      const exprFn = compile(node.expr, env);
-      const catchFn = node.catch_ ? compile(node.catch_) : null;
+      const catchFn = node.catch_ ? compile(node.catch_, env) : null;
       return (input) => {
-        try {
-          return exprFn(input);
-        } catch (e) {
-          if (catchFn) {
-            const errMsg = e instanceof Error ? e.message : String(e);
-            return catchFn(errMsg as JsonValue);
-          }
-          return [];
-        }
+        const results: JsonValue[] = [];
+        generateValues(
+          node.expr,
+          env,
+          input,
+          (v) => results.push(v),
+          (e) => {
+            if (catchFn) {
+              const errVal =
+                e instanceof JqRuntimeError
+                  ? (e as JqRuntimeError).value
+                  : e instanceof Error
+                    ? (e as Error).message
+                    : String(e);
+              results.push(...catchFn(errVal as JsonValue));
+            }
+          },
+        );
+        return results;
       };
     }
 
@@ -215,7 +242,8 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
       const exprFn = compile(node.expr, env);
       return (input) =>
         exprFn(input).map((v) => {
-          if (typeof v !== "number") throw new JqRuntimeError(`Cannot negate ${jqType(v)}`);
+          if (typeof v !== "number")
+            throw new JqRuntimeError(`${jqType(v)} (${jqTruncate(v)}) cannot be negated`);
           return -v;
         });
     }
@@ -366,7 +394,11 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
         return [
           updatePaths(input, node.path, env, (oldVal) => {
             const op = node.op;
-            if (op === "|=") return bodyFn(oldVal)[0] ?? null;
+            if (op === "|=") {
+              const results = bodyFn(oldVal);
+              if (results.length === 0) return REMOVE_SENTINEL as unknown as JsonValue;
+              return results[0]!;
+            }
             if (op === "//=")
               return oldVal !== null && oldVal !== false ? oldVal : (bodyFn(input)[0] ?? null);
             const arithOp = op.slice(0, -1); // '+=' -> '+', etc.
@@ -409,7 +441,11 @@ function updatePathInner(
       return updater(root);
 
     case "field": {
-      if (root === null || typeof root !== "object" || Array.isArray(root)) {
+      if (root === null) {
+        // Auto-create object from null
+        return { [node.name]: updater(null) };
+      }
+      if (typeof root !== "object" || Array.isArray(root)) {
         throw new JqRuntimeError(`Cannot index ${jqType(root)} with string "${node.name}"`);
       }
       const obj = { ...root };
@@ -420,10 +456,21 @@ function updatePathInner(
     case "index": {
       const idxFn = compile(node.index, env);
       const idx = idxFn(root)[0];
-      if (typeof idx === "number" && Array.isArray(root)) {
+      if (typeof idx === "number") {
+        if (root === null) root = [];
+        if (!Array.isArray(root))
+          throw new JqRuntimeError(`Cannot index ${jqType(root)} with number`);
+        if (idx < 0) {
+          const i = root.length + idx;
+          if (i < 0) throw new JqRuntimeError("Out of bounds negative array index");
+          const arr = [...root];
+          arr[i] = updater(arr[i] ?? null);
+          return arr;
+        }
+        if (idx > 536870911) throw new JqRuntimeError("Array index too large");
         const arr = [...root];
-        const i = idx < 0 ? arr.length + idx : idx;
-        arr[i] = updater(arr[i] ?? null);
+        while (arr.length <= idx) arr.push(null);
+        arr[idx] = updater(arr[idx] ?? null);
         return arr;
       }
       if (
@@ -441,12 +488,14 @@ function updatePathInner(
 
     case "iterate": {
       if (Array.isArray(root)) {
-        return root.map((item) => updater(item));
+        const result = root.map((item) => updater(item));
+        return result.filter((item) => item !== (REMOVE_SENTINEL as unknown));
       }
       if (root !== null && typeof root === "object") {
         const obj: Record<string, JsonValue> = {};
         for (const [k, v] of Object.entries(root)) {
-          obj[k] = updater(v);
+          const updated = updater(v);
+          if (updated !== (REMOVE_SENTINEL as unknown)) obj[k] = updated;
         }
         return obj;
       }
@@ -475,6 +524,14 @@ function updatePathInner(
     }
 
     case "optional": {
+      try {
+        return updatePathInner(root, node.expr, env, updater);
+      } catch {
+        return root;
+      }
+    }
+
+    case "try": {
       try {
         return updatePathInner(root, node.expr, env, updater);
       } catch {
@@ -678,6 +735,14 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
           return [input.some(isTruthy)];
         };
       }
+      if (args.length === 2) {
+        const genFn = compile(args[0]!, env);
+        const condFn = compile(args[1]!, env);
+        return (input) => {
+          const values = genFn(input);
+          return [values.some((v) => condFn(v).some(isTruthy))];
+        };
+      }
       const fn = compile(args[0]!, env);
       return (input) => {
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot any over ${jqType(input)}`);
@@ -690,6 +755,14 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         return (input) => {
           if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot all over ${jqType(input)}`);
           return [input.every(isTruthy)];
+        };
+      }
+      if (args.length === 2) {
+        const genFn = compile(args[0]!, env);
+        const condFn = compile(args[1]!, env);
+        return (input) => {
+          const values = genFn(input);
+          return [values.every((v) => condFn(v).some(isTruthy))];
         };
       }
       const fn = compile(args[0]!, env);
@@ -766,9 +839,11 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       return (input) => {
         if (typeof input === "number") return [input];
         if (typeof input === "string") {
-          const n = Number(input);
-          if (isNaN(n)) throw new JqRuntimeError(`Cannot convert "${input}" to number`);
-          return [n];
+          if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(input))
+            throw new JqRuntimeError(
+              `Invalid numeric literal at EOF at line 1, column 0 (while parsing '${input}')`,
+            );
+          return [Number(input)];
         }
         throw new JqRuntimeError(`Cannot convert ${jqType(input)} to number`);
       };
@@ -1012,13 +1087,16 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
     case "error": {
       if (args.length === 0) {
         return (input) => {
-          throw new JqRuntimeError(typeof input === "string" ? input : JSON.stringify(input));
+          const msg = typeof input === "string" ? input : JSON.stringify(input);
+          throw new JqRuntimeError(msg, input);
         };
       }
       const msgFn = compile(args[0]!, env);
       return (input) => {
         const msgs = msgFn(input);
-        throw new JqRuntimeError(typeof msgs[0] === "string" ? msgs[0] : JSON.stringify(msgs[0]));
+        const val = msgs[0] ?? null;
+        const msg = typeof val === "string" ? val : JSON.stringify(val);
+        throw new JqRuntimeError(msg, val);
       };
     }
 
@@ -1641,10 +1719,59 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
 
 // --- Helpers ---
 
+function generateValues(
+  node: AstNode,
+  env: Env,
+  input: JsonValue,
+  onValue: (v: JsonValue) => void,
+  onError: (e: unknown) => void,
+): void {
+  switch (node.kind) {
+    case "pipe": {
+      generateValues(
+        node.left,
+        env,
+        input,
+        (leftVal) => generateValues(node.right, env, leftVal, onValue, onError),
+        onError,
+      );
+      break;
+    }
+    case "comma": {
+      generateValues(node.left, env, input, onValue, onError);
+      generateValues(node.right, env, input, onValue, onError);
+      break;
+    }
+    default: {
+      try {
+        for (const val of compile(node, env)(input)) {
+          onValue(val);
+        }
+      } catch (e) {
+        if (e instanceof BreakSignal) throw e;
+        onError(e);
+      }
+    }
+  }
+}
+
 function jqType(v: JsonValue): string {
   if (v === null) return "null";
   if (Array.isArray(v)) return "array";
   return typeof v;
+}
+
+function jqTruncate(v: JsonValue): string {
+  const s = typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v);
+  if (s.length > 15) {
+    // Truncate string content (inside quotes) at ~15 visible chars
+    if (typeof v === "string") {
+      const inner = v.length > 13 ? v.slice(0, 13) + "..." : v;
+      return JSON.stringify(inner);
+    }
+    return s.length > 20 ? s.slice(0, 17) + "..." : s;
+  }
+  return s;
 }
 
 function isTruthy(v: JsonValue | undefined): boolean {
@@ -2102,6 +2229,7 @@ function buildRegex(
 
 function buildMatchObject(m: RegExpExecArray): JsonValue {
   const captures: JsonValue[] = [];
+  const namedCaptures: Record<string, JsonValue> = {};
   if (m.length > 1) {
     for (let i = 1; i < m.length; i++) {
       const groupName = m.groups
@@ -2109,6 +2237,7 @@ function buildMatchObject(m: RegExpExecArray): JsonValue {
         : null;
       if (m[i] === undefined) {
         captures.push({ offset: -1, length: 0, string: null, name: groupName });
+        if (groupName) namedCaptures[groupName] = null;
       } else {
         const groupStr = m[i]!;
         const groupOffset =
@@ -2119,6 +2248,7 @@ function buildMatchObject(m: RegExpExecArray): JsonValue {
           string: groupStr,
           name: groupName,
         });
+        if (groupName) namedCaptures[groupName] = groupStr;
       }
     }
   }
@@ -2127,6 +2257,7 @@ function buildMatchObject(m: RegExpExecArray): JsonValue {
     length: m[0]!.length,
     string: m[0]!,
     captures,
+    ...namedCaptures,
   };
 }
 

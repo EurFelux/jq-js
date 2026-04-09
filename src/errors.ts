@@ -19,8 +19,10 @@ export class JqParseError extends Error {
 }
 
 export class JqRuntimeError extends Error {
-  constructor(message: string) {
+  value: unknown;
+  constructor(message: string, value?: unknown) {
     super(message);
     this.name = "JqRuntimeError";
+    this.value = value !== undefined ? value : message;
   }
 }
