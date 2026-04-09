@@ -66,6 +66,9 @@ export enum TokenType {
   Label,
   Break,
 
+  // Format
+  Format,
+
   // Special
   Recurse,
   Ident,

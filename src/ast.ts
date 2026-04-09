@@ -29,7 +29,8 @@ export type AstNode =
   | DefNode
   | UpdateNode
   | AssignNode
-  | StringInterpolationNode;
+  | StringInterpolationNode
+  | FormatNode;
 
 export interface IdentityNode {
   kind: "identity";
@@ -252,5 +253,12 @@ export interface AssignNode {
 export interface StringInterpolationNode {
   kind: "string_interpolation";
   parts: (string | AstNode)[];
+  pos: number;
+}
+
+export interface FormatNode {
+  kind: "format";
+  name: string; // e.g. "base64", "html"
+  str: AstNode | null; // for @base64 "string interpolation \(.x)" usage
   pos: number;
 }
