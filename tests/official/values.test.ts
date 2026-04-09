@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: values', () => {
+describe("jq official: values", () => {
   // line 8: true
   test(`true | null`, () => {
     const input = JSON.parse(`null`);
@@ -68,5 +68,4 @@ describe('jq official: values', () => {
     const result = jq(`.`, input);
     expect(result).toEqual([JSON.parse(`"byte order mark"`)]);
   });
-
 });

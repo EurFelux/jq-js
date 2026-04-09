@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: objects', () => {
+describe("jq official: objects", () => {
   // line 114: {a: 1}
   test(`{a: 1} | null`, () => {
     const input = JSON.parse(`null`);
@@ -31,14 +31,18 @@ describe('jq official: objects', () => {
   test(`{ a, \$__loc__, c } | {"a":[1,2,3],"b":"foo","c":{"hi":"hey"}}`, () => {
     const input = JSON.parse(`{"a":[1,2,3],"b":"foo","c":{"hi":"hey"}}`);
     const result = jq(`{ a, \$__loc__, c }`, input);
-    expect(result).toEqual([JSON.parse(`{"a":[1,2,3],"__loc__":{"file":"<top-level>","line":1},"c":{"hi":"hey"}}`)]);
+    expect(result).toEqual([
+      JSON.parse(`{"a":[1,2,3],"__loc__":{"file":"<top-level>","line":1},"c":{"hi":"hey"}}`),
+    ]);
   });
 
   // line 2299: 1 as $x | "2" as $y | "3" as $z | { $x, as, $y: 4, ($z): 5, if: 6, foo: 7 }
   test(`1 as \$x | "2" as \$y | "3" as \$z | { \$x, as, \$y: 4, (\$z): 5, if: 6, foo: 7 } | {"as":8}`, () => {
     const input = JSON.parse(`{"as":8}`);
-    const result = jq(`1 as \$x | "2" as \$y | "3" as \$z | { \$x, as, \$y: 4, (\$z): 5, if: 6, foo: 7 }`, input);
+    const result = jq(
+      `1 as \$x | "2" as \$y | "3" as \$z | { \$x, as, \$y: 4, (\$z): 5, if: 6, foo: 7 }`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`{"x":1,"as":8,"2":4,"3":5,"if":6,"foo":7}`)]);
   });
-
 });

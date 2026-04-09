@@ -32,55 +32,55 @@ export type AstNode =
   | StringInterpolationNode;
 
 export interface IdentityNode {
-  kind: 'identity';
+  kind: "identity";
   pos: number;
 }
 
 export interface FieldAccessNode {
-  kind: 'field';
+  kind: "field";
   name: string;
   pos: number;
 }
 
 export interface IndexNode {
-  kind: 'index';
+  kind: "index";
   index: AstNode;
   pos: number;
 }
 
 export interface SliceNode {
-  kind: 'slice';
+  kind: "slice";
   from: AstNode | null;
   to: AstNode | null;
   pos: number;
 }
 
 export interface IterateNode {
-  kind: 'iterate';
+  kind: "iterate";
   pos: number;
 }
 
 export interface PipeNode {
-  kind: 'pipe';
+  kind: "pipe";
   left: AstNode;
   right: AstNode;
   pos: number;
 }
 
 export interface LiteralNode {
-  kind: 'literal';
+  kind: "literal";
   value: string | number | boolean | null;
   pos: number;
 }
 
 export interface ArrayConstructNode {
-  kind: 'array';
+  kind: "array";
   expr: AstNode | null;
   pos: number;
 }
 
 export interface ObjectConstructNode {
-  kind: 'object';
+  kind: "object";
   entries: ObjectEntry[];
   pos: number;
 }
@@ -91,7 +91,7 @@ export interface ObjectEntry {
 }
 
 export interface ConditionNode {
-  kind: 'condition';
+  kind: "condition";
   condition: AstNode;
   then: AstNode;
   elifs: { condition: AstNode; then: AstNode }[];
@@ -100,93 +100,93 @@ export interface ConditionNode {
 }
 
 export interface FuncCallNode {
-  kind: 'func';
+  kind: "func";
   name: string;
   args: AstNode[];
   pos: number;
 }
 
 export interface TryNode {
-  kind: 'try';
+  kind: "try";
   expr: AstNode;
   catch_: AstNode | null;
   pos: number;
 }
 
 export interface ArithOpNode {
-  kind: 'arith';
-  op: '+' | '-' | '*' | '/' | '%';
+  kind: "arith";
+  op: "+" | "-" | "*" | "/" | "%";
   left: AstNode;
   right: AstNode;
   pos: number;
 }
 
 export interface CompareOpNode {
-  kind: 'compare';
-  op: '==' | '!=' | '<' | '>' | '<=' | '>=';
+  kind: "compare";
+  op: "==" | "!=" | "<" | ">" | "<=" | ">=";
   left: AstNode;
   right: AstNode;
   pos: number;
 }
 
 export interface LogicOpNode {
-  kind: 'logic';
-  op: 'and' | 'or';
+  kind: "logic";
+  op: "and" | "or";
   left: AstNode;
   right: AstNode;
   pos: number;
 }
 
 export interface NotNode {
-  kind: 'not';
+  kind: "not";
   expr: AstNode;
   pos: number;
 }
 
 export interface NegateNode {
-  kind: 'negate';
+  kind: "negate";
   expr: AstNode;
   pos: number;
 }
 
 export interface RecurseNode {
-  kind: 'recurse';
+  kind: "recurse";
   pos: number;
 }
 
 export interface CommaNode {
-  kind: 'comma';
+  kind: "comma";
   left: AstNode;
   right: AstNode;
   pos: number;
 }
 
 export interface OptionalNode {
-  kind: 'optional';
+  kind: "optional";
   expr: AstNode;
   pos: number;
 }
 
 export interface AlternativeNode {
-  kind: 'alternative';
+  kind: "alternative";
   left: AstNode;
   right: AstNode;
   pos: number;
 }
 
 export interface VarRefNode {
-  kind: 'var_ref';
+  kind: "var_ref";
   name: string; // includes $ prefix
   pos: number;
 }
 
 export type BindingPattern =
-  | { type: 'variable'; name: string }
-  | { type: 'array'; elements: BindingPattern[] }
-  | { type: 'object'; entries: { key: AstNode; pattern: BindingPattern }[] };
+  | { type: "variable"; name: string }
+  | { type: "array"; elements: BindingPattern[] }
+  | { type: "object"; entries: { key: AstNode; pattern: BindingPattern }[] };
 
 export interface AsNode {
-  kind: 'as';
+  kind: "as";
   expr: AstNode;
   pattern: BindingPattern;
   body: AstNode;
@@ -194,7 +194,7 @@ export interface AsNode {
 }
 
 export interface ReduceNode {
-  kind: 'reduce';
+  kind: "reduce";
   expr: AstNode;
   pattern: BindingPattern;
   init: AstNode;
@@ -203,7 +203,7 @@ export interface ReduceNode {
 }
 
 export interface ForeachNode {
-  kind: 'foreach';
+  kind: "foreach";
   expr: AstNode;
   pattern: BindingPattern;
   init: AstNode;
@@ -213,20 +213,20 @@ export interface ForeachNode {
 }
 
 export interface LabelNode {
-  kind: 'label';
+  kind: "label";
   name: string;
   body: AstNode;
   pos: number;
 }
 
 export interface BreakNode {
-  kind: 'break';
+  kind: "break";
   name: string;
   pos: number;
 }
 
 export interface DefNode {
-  kind: 'def';
+  kind: "def";
   name: string;
   params: string[];
   body: AstNode;
@@ -235,22 +235,22 @@ export interface DefNode {
 }
 
 export interface UpdateNode {
-  kind: 'update';
+  kind: "update";
   path: AstNode;
-  op: '|=' | '+=' | '-=' | '*=' | '/=' | '%=' | '//=';
+  op: "|=" | "+=" | "-=" | "*=" | "/=" | "%=" | "//=";
   body: AstNode;
   pos: number;
 }
 
 export interface AssignNode {
-  kind: 'assign';
+  kind: "assign";
   path: AstNode;
   value: AstNode;
   pos: number;
 }
 
 export interface StringInterpolationNode {
-  kind: 'string_interpolation';
+  kind: "string_interpolation";
   parts: (string | AstNode)[];
   pos: number;
 }

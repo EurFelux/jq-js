@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: def', () => {
+describe("jq official: def", () => {
   // line 784: def f: . + 1; def g: def g: . + 100; f | g | f; (f | g), g
   test(`def f: . + 1; def g: def g: . + 100; f | g | f; (f | g), g | 3.0`, () => {
     const input = JSON.parse(`3.0`);
@@ -23,14 +23,20 @@ describe('jq official: def', () => {
   // line 794: def f(a;b;c;d;e;f): [a+1,b,c,d,e,f]; f(.[0];.[1];.[0];.[0];.[0];.[0])
   test(`def f(a;b;c;d;e;f): [a+1,b,c,d,e,f]; f(.[0];.[1];.[0];.[0];.[0];.[0]) | [1,2]`, () => {
     const input = JSON.parse(`[1,2]`);
-    const result = jq(`def f(a;b;c;d;e;f): [a+1,b,c,d,e,f]; f(.[0];.[1];.[0];.[0];.[0];.[0])`, input);
+    const result = jq(
+      `def f(a;b;c;d;e;f): [a+1,b,c,d,e,f]; f(.[0];.[1];.[0];.[0];.[0];.[0])`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`[2,2,1,1,1,1]`)]);
   });
 
   // line 798: def f: 1; def g: f, def f: 2; def g: 3; f, def f: g; f, g; def f: 4; [f, def f: g; def g: 5; f, g]+[f,g]
   test(`def f: 1; def g: f, def f: 2; def g: 3; f, def f: g; f, g; def f: 4; [f, def f: g; def g: 5; f, g]+[f,g] | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`def f: 1; def g: f, def f: 2; def g: 3; f, def f: g; f, g; def f: 4; [f, def f: g; def g: 5; f, g]+[f,g]`, input);
+    const result = jq(
+      `def f: 1; def g: f, def f: 2; def g: 3; f, def f: g; f, g; def f: 4; [f, def f: g; def g: 5; f, g]+[f,g]`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`[4,1,2,3,3,5,4,1,2,3,3]`)]);
   });
 
@@ -44,7 +50,10 @@ describe('jq official: def', () => {
   // line 808: def f(a;b;c;d;e;f;g;h;i;j): [j,i,h,g,f,e,d,c,b,a]; f(.[0];.[1];.[2];.[3];.[4];.[5];.[6];.[7];.[8];.[9])
   test(`def f(a;b;c;d;e;f;g;h;i;j): [j,i,h,g,f,e,d,c,b,a]; f(.[0];.[1];.[2];.[3];.[4];.[5];.[6];.[7];.[8];.[9]) | [0,1,2,3,4,5,6,7,8,9]`, () => {
     const input = JSON.parse(`[0,1,2,3,4,5,6,7,8,9]`);
-    const result = jq(`def f(a;b;c;d;e;f;g;h;i;j): [j,i,h,g,f,e,d,c,b,a]; f(.[0];.[1];.[2];.[3];.[4];.[5];.[6];.[7];.[8];.[9])`, input);
+    const result = jq(
+      `def f(a;b;c;d;e;f;g;h;i;j): [j,i,h,g,f,e,d,c,b,a]; f(.[0];.[1];.[2];.[3];.[4];.[5];.[6];.[7];.[8];.[9])`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`[9,8,7,6,5,4,3,2,1,0]`)]);
   });
 
@@ -93,7 +102,10 @@ describe('jq official: def', () => {
   // line 838: (add / length) as $m | map((. - $m) as $d | $d * $d) | add / length | sqrt
   test(`(add / length) as \$m | map((. - \$m) as \$d | \$d * \$d) | add / length | sqrt | [2,4,4,4,5,5,7,9]`, () => {
     const input = JSON.parse(`[2,4,4,4,5,5,7,9]`);
-    const result = jq(`(add / length) as \$m | map((. - \$m) as \$d | \$d * \$d) | add / length | sqrt`, input);
+    const result = jq(
+      `(add / length) as \$m | map((. - \$m) as \$d | \$d * \$d) | add / length | sqrt`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`2`)]);
   });
 
@@ -145,5 +157,4 @@ describe('jq official: def', () => {
     const result = jq(`reduce . as \$n (.; .)`, input);
     expect(result).toEqual([JSON.parse(`null`)]);
   });
-
 });

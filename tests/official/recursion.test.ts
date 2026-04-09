@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: recursion', () => {
+describe("jq official: recursion", () => {
   // line 889: def fac: if . == 1 then 1 else . * (. - 1 | fac) end; [.[] | fac]
   test(`def fac: if . == 1 then 1 else . * (. - 1 | fac) end; [.[] | fac] | [1,2,3,4]`, () => {
     const input = JSON.parse(`[1,2,3,4]`);
@@ -150,7 +150,13 @@ describe('jq official: recursion', () => {
   test(`bsearch(0,1,2,3,4) | [1,2,3]`, () => {
     const input = JSON.parse(`[1,2,3]`);
     const result = jq(`bsearch(0,1,2,3,4)`, input);
-    expect(result).toEqual([JSON.parse(`-1`), JSON.parse(`0`), JSON.parse(`1`), JSON.parse(`2`), JSON.parse(`-4`)]);
+    expect(result).toEqual([
+      JSON.parse(`-1`),
+      JSON.parse(`0`),
+      JSON.parse(`1`),
+      JSON.parse(`2`),
+      JSON.parse(`-4`),
+    ]);
   });
 
   // line 1826: bsearch({x:1})
@@ -208,5 +214,4 @@ describe('jq official: recursion', () => {
     const result = jq(`gmtime[5]`, input);
     expect(result).toEqual([JSON.parse(`47.25`)]);
   });
-
 });

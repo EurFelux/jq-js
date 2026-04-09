@@ -1,13 +1,17 @@
 // Auto-generated from jq's onig test suite
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
-describe('jq official: regex', () => {
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
+describe("jq official: regex", () => {
   // line 4
   test(`[match("( )*"; "g")] | "abc"`, () => {
     const input = JSON.parse(`"abc"`);
     const result = jq(`[match("( )*"; "g")]`, input);
-    expect(result).toEqual([JSON.parse(`[{"offset":0,"length":0,"string":"","captures":[{"offset":-1,"string":null,"length":0,"name":null}]},{"offset":1,"length":0,"string":"","captures":[{"offset":-1,"string":null,"length":0,"name":null}]},{"offset":2,"length":0,"string":"","captures":[{"offset":-1,"string":null,"length":0,"name":null}]},{"offset":3,"length":0,"string":"","captures":[{"offset":-1,"string":null,"length":0,"name":null}]}]`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `[{"offset":0,"length":0,"string":"","captures":[{"offset":-1,"string":null,"length":0,"name":null}]},{"offset":1,"length":0,"string":"","captures":[{"offset":-1,"string":null,"length":0,"name":null}]},{"offset":2,"length":0,"string":"","captures":[{"offset":-1,"string":null,"length":0,"name":null}]},{"offset":3,"length":0,"string":"","captures":[{"offset":-1,"string":null,"length":0,"name":null}]}]`,
+      ),
+    ]);
   });
 
   // line 8
@@ -21,7 +25,11 @@ describe('jq official: regex', () => {
   test(`[match(""; "g")] | "ab"`, () => {
     const input = JSON.parse(`"ab"`);
     const result = jq(`[match(""; "g")]`, input);
-    expect(result).toEqual([JSON.parse(`[{"offset":0,"length":0,"string":"","captures":[]},{"offset":1,"length":0,"string":"","captures":[]},{"offset":2,"length":0,"string":"","captures":[]}]`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `[{"offset":0,"length":0,"string":"","captures":[]},{"offset":1,"length":0,"string":"","captures":[]},{"offset":2,"length":0,"string":"","captures":[]}]`,
+      ),
+    ]);
   });
 
   // line 16
@@ -35,63 +43,105 @@ describe('jq official: regex', () => {
   test(`[match(["(bar)"])] | "foo bar"`, () => {
     const input = JSON.parse(`"foo bar"`);
     const result = jq(`[match(["(bar)"])]`, input);
-    expect(result).toEqual([JSON.parse(`[{"offset": 4, "length": 3, "string": "bar", "captures":[{"offset": 4, "length": 3, "string": "bar", "name": null}]}]`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `[{"offset": 4, "length": 3, "string": "bar", "captures":[{"offset": 4, "length": 3, "string": "bar", "name": null}]}]`,
+      ),
+    ]);
   });
 
   // line 25
   test(`[match("bar")] | "ā bar with a combining codepoint U+0304"`, () => {
     const input = JSON.parse(`"ā bar with a combining codepoint U+0304"`);
     const result = jq(`[match("bar")]`, input);
-    expect(result).toEqual([JSON.parse(`[{"offset": 3, "length": 3, "string": "bar", "captures":[]}]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[{"offset": 3, "length": 3, "string": "bar", "captures":[]}]`),
+    ]);
   });
 
   // line 30
   test(`[match("bār")] | "a bār"`, () => {
     const input = JSON.parse(`"a bār"`);
     const result = jq(`[match("bār")]`, input);
-    expect(result).toEqual([JSON.parse(`[{"offset": 2, "length": 4, "string": "bār", "captures":[]}]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[{"offset": 2, "length": 4, "string": "bār", "captures":[]}]`),
+    ]);
   });
 
   // line 34
   test(`[match(".+?\\\\b")] | "ā two-codepoint grapheme"`, () => {
     const input = JSON.parse(`"ā two-codepoint grapheme"`);
     const result = jq(`[match(".+?\\\\b")]`, input);
-    expect(result).toEqual([JSON.parse(`[{"offset": 0, "length": 2, "string": "ā", "captures":[]}]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[{"offset": 0, "length": 2, "string": "ā", "captures":[]}]`),
+    ]);
   });
 
   // line 38
   test(`[match(["foo (?<bar123>bar)? foo", "ig"])] | "foo bar foo foo  foo"`, () => {
     const input = JSON.parse(`"foo bar foo foo  foo"`);
     const result = jq(`[match(["foo (?<bar123>bar)? foo", "ig"])]`, input);
-    expect(result).toEqual([JSON.parse(`[{"offset": 0, "length": 11, "string": "foo bar foo", "captures":[{"offset": 4, "length": 3, "string": "bar", "name": "bar123"}]},{"offset":12, "length": 8, "string": "foo  foo", "captures":[{"offset": -1, "length": 0, "string": null, "name": "bar123"}]}]`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `[{"offset": 0, "length": 11, "string": "foo bar foo", "captures":[{"offset": 4, "length": 3, "string": "bar", "name": "bar123"}]},{"offset":12, "length": 8, "string": "foo  foo", "captures":[{"offset": -1, "length": 0, "string": null, "name": "bar123"}]}]`,
+      ),
+    ]);
   });
 
   // line 45
   test(`"a","b","c" | capture("(?<x>a)?b?") | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`"a","b","c" | capture("(?<x>a)?b?")`, input);
-    expect(result).toEqual([JSON.parse(`{"x":"a"}`), JSON.parse(`{"x":null}`), JSON.parse(`{"x":null}`)]);
+    expect(result).toEqual([
+      JSON.parse(`{"x":"a"}`),
+      JSON.parse(`{"x":null}`),
+      JSON.parse(`{"x":null}`),
+    ]);
   });
 
   // line 51
   test(`"a","b","c" | match("(?<x>a)?b?") | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`"a","b","c" | match("(?<x>a)?b?")`, input);
-    expect(result).toEqual([JSON.parse(`{"offset":0,"length":1,"string":"a","captures":[{"offset":0,"length":1,"string":"a","name":"x"}]}`), JSON.parse(`{"offset":0,"length":1,"string":"b","captures":[{"offset":-1,"string":null,"length":0,"name":"x"}]}`), JSON.parse(`{"offset":0,"length":0,"string":"","captures":[{"offset":-1,"string":null,"length":0,"name":"x"}]}`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `{"offset":0,"length":1,"string":"a","captures":[{"offset":0,"length":1,"string":"a","name":"x"}]}`,
+      ),
+      JSON.parse(
+        `{"offset":0,"length":1,"string":"b","captures":[{"offset":-1,"string":null,"length":0,"name":"x"}]}`,
+      ),
+      JSON.parse(
+        `{"offset":0,"length":0,"string":"","captures":[{"offset":-1,"string":null,"length":0,"name":"x"}]}`,
+      ),
+    ]);
   });
 
   // line 58
   test(`"a","b","c" | capture("(?<x>a?)?b?") | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`"a","b","c" | capture("(?<x>a?)?b?")`, input);
-    expect(result).toEqual([JSON.parse(`{"x":"a"}`), JSON.parse(`{"x":""}`), JSON.parse(`{"x":""}`)]);
+    expect(result).toEqual([
+      JSON.parse(`{"x":"a"}`),
+      JSON.parse(`{"x":""}`),
+      JSON.parse(`{"x":""}`),
+    ]);
   });
 
   // line 64
   test(`"a","b","c" | match("(?<x>a?)?b?") | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`"a","b","c" | match("(?<x>a?)?b?")`, input);
-    expect(result).toEqual([JSON.parse(`{"offset":0,"length":1,"string":"a","captures":[{"offset":0,"length":1,"string":"a","name":"x"}]}`), JSON.parse(`{"offset":0,"length":1,"string":"b","captures":[{"offset":0,"string":"","length":0,"name":"x"}]}`), JSON.parse(`{"offset":0,"length":0,"string":"","captures":[{"offset":0,"string":"","length":0,"name":"x"}]}`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `{"offset":0,"length":1,"string":"a","captures":[{"offset":0,"length":1,"string":"a","name":"x"}]}`,
+      ),
+      JSON.parse(
+        `{"offset":0,"length":1,"string":"b","captures":[{"offset":0,"string":"","length":0,"name":"x"}]}`,
+      ),
+      JSON.parse(
+        `{"offset":0,"length":0,"string":"","captures":[{"offset":0,"string":"","length":0,"name":"x"}]}`,
+      ),
+    ]);
   });
 
   // line 69
@@ -231,14 +281,22 @@ describe('jq official: regex', () => {
   test(`[.[]|[[sub(", *";":")], [gsub(", *";":")], [scan(", *")]]] | ["a,b, c, d, e,f",", a,b, c, d, e,f, "]`, () => {
     const input = JSON.parse(`["a,b, c, d, e,f",", a,b, c, d, e,f, "]`);
     const result = jq(`[.[]|[[sub(", *";":")], [gsub(", *";":")], [scan(", *")]]]`, input);
-    expect(result).toEqual([JSON.parse(`[[["a:b, c, d, e,f"],["a:b:c:d:e:f"],[",",", ",", ",", ",","]],[[":a,b, c, d, e,f, "],[":a:b:c:d:e:f:"],[", ",",",", ",", ",", ",",",", "]]]`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `[[["a:b, c, d, e,f"],["a:b:c:d:e:f"],[",",", ",", ",", ",","]],[[":a,b, c, d, e,f, "],[":a:b:c:d:e:f:"],[", ",",",", ",", ",", ",",",", "]]]`,
+      ),
+    ]);
   });
 
   // line 155
   test(`[.[]|[[sub(", +";":")], [gsub(", +";":")], [scan(", +")]]] | ["a,b, c, d, e,f",", a,b, c, d, e,f, "]`, () => {
     const input = JSON.parse(`["a,b, c, d, e,f",", a,b, c, d, e,f, "]`);
     const result = jq(`[.[]|[[sub(", +";":")], [gsub(", +";":")], [scan(", +")]]]`, input);
-    expect(result).toEqual([JSON.parse(`[[["a,b:c, d, e,f"],["a,b:c:d:e,f"],[", ",", ",", "]],[[":a,b, c, d, e,f, "],[":a,b:c:d:e,f:"],[", ",", ",", ",", ",", "]]]`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `[[["a,b:c, d, e,f"],["a,b:c:d:e,f"],[", ",", ",", "]],[[":a,b, c, d, e,f, "],[":a,b:c:d:e,f:"],[", ",", ",", ",", ",", "]]]`,
+      ),
+    ]);
   });
 
   // line 159
@@ -293,14 +351,20 @@ describe('jq official: regex', () => {
   // line 189
   test(`[sub("(?<a>.)"; "\\(.a|ascii_upcase)", "\\(.a|ascii_downcase)", "c")] | "aB"`, () => {
     const input = JSON.parse(`"aB"`);
-    const result = jq(`[sub("(?<a>.)"; "\\(.a|ascii_upcase)", "\\(.a|ascii_downcase)", "c")]`, input);
+    const result = jq(
+      `[sub("(?<a>.)"; "\\(.a|ascii_upcase)", "\\(.a|ascii_downcase)", "c")]`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`["AB","aB","cB"]`)]);
   });
 
   // line 193
   test(`[gsub("(?<a>.)"; "\\(.a|ascii_upcase)", "\\(.a|ascii_downcase)", "c")] | "aB"`, () => {
     const input = JSON.parse(`"aB"`);
-    const result = jq(`[gsub("(?<a>.)"; "\\(.a|ascii_upcase)", "\\(.a|ascii_downcase)", "c")]`, input);
+    const result = jq(
+      `[gsub("(?<a>.)"; "\\(.a|ascii_upcase)", "\\(.a|ascii_downcase)", "c")]`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`["AB","ab","cc"]`)]);
   });
 
@@ -331,5 +395,4 @@ describe('jq official: regex', () => {
     const result = jq(`[splits("b+"; "i")]`, input);
     expect(result).toEqual([JSON.parse(`["a","AA","a","A"]`)]);
   });
-
 });
