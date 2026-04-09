@@ -135,6 +135,9 @@ class Parser {
     if (this.peek().type === TokenType.Ident) {
       const name = this.advance();
       key = { kind: "literal", value: name.value, pos: name.pos };
+    } else if (this.isKeywordToken(this.peek().type)) {
+      const name = this.advance();
+      key = { kind: "literal", value: name.value, pos: name.pos };
     } else if (this.peek().type === TokenType.String) {
       const str = this.advance();
       key = { kind: "literal", value: str.value, pos: str.pos };
@@ -237,6 +240,15 @@ class Parser {
   private parseUnary(): AstNode {
     if (this.peek().type === TokenType.Minus) {
       const token = this.advance();
+      // Allow -reduce and -foreach
+      if (this.peek().type === TokenType.Reduce) {
+        const expr = this.parseReduce();
+        return { kind: "negate", expr, pos: token.pos };
+      }
+      if (this.peek().type === TokenType.Foreach) {
+        const expr = this.parseForeach();
+        return { kind: "negate", expr, pos: token.pos };
+      }
       const expr = this.parseUnary();
       return { kind: "negate", expr, pos: token.pos };
     }
@@ -518,6 +530,32 @@ class Parser {
     return { kind: "object", entries, pos: token.pos };
   }
 
+  private isKeywordToken(type: TokenType): boolean {
+    return (
+      type === TokenType.If ||
+      type === TokenType.Then ||
+      type === TokenType.Elif ||
+      type === TokenType.Else ||
+      type === TokenType.End ||
+      type === TokenType.And ||
+      type === TokenType.Or ||
+      type === TokenType.Not ||
+      type === TokenType.True ||
+      type === TokenType.False ||
+      type === TokenType.Null ||
+      type === TokenType.Try ||
+      type === TokenType.Catch ||
+      type === TokenType.As ||
+      type === TokenType.Def ||
+      type === TokenType.Reduce ||
+      type === TokenType.Foreach ||
+      type === TokenType.Label ||
+      type === TokenType.Break ||
+      type === TokenType.Import ||
+      type === TokenType.Include
+    );
+  }
+
   private parseObjectEntry(): ObjectEntry {
     // {name} shorthand — equivalent to {name: .name}
     if (
@@ -529,6 +567,28 @@ class Parser {
         key: { kind: "literal", value: name.value, pos: name.pos },
         value: null,
       };
+    }
+
+    // {keyword} shorthand — treat keyword tokens as identifier keys
+    if (
+      this.isKeywordToken(this.peek().type) &&
+      this.tokens[this.pos + 1]?.type !== TokenType.Colon
+    ) {
+      const name = this.advance();
+      return {
+        key: { kind: "literal", value: name.value, pos: name.pos },
+        value: null,
+      };
+    }
+
+    // {"str"} shorthand — equivalent to {"str": .str}
+    if (
+      this.peek().type === TokenType.String &&
+      this.tokens[this.pos + 1]?.type !== TokenType.Colon
+    ) {
+      const str = this.advance();
+      const key = this.parseStringValue(str);
+      return { key, value: null };
     }
 
     // {$var} shorthand — equivalent to {(var_name): $var}
@@ -548,6 +608,9 @@ class Parser {
     if (this.peek().type === TokenType.Ident) {
       const name = this.advance();
       key = { kind: "literal", value: name.value, pos: name.pos };
+    } else if (this.isKeywordToken(this.peek().type)) {
+      const name = this.advance();
+      key = { kind: "literal", value: name.value, pos: name.pos };
     } else if (this.peek().type === TokenType.String) {
       const str = this.advance();
       key = this.parseStringValue(str);
@@ -557,7 +620,7 @@ class Parser {
       this.expect(TokenType.RParen);
     } else if (this.peek().type === TokenType.Variable) {
       const varToken = this.advance();
-      key = { kind: "literal", value: varToken.value.slice(1), pos: varToken.pos };
+      key = { kind: "var_ref", name: varToken.value, pos: varToken.pos };
     } else {
       throw new JqParseError("Expected object key", this.peek().pos);
     }
@@ -629,7 +692,7 @@ class Parser {
   // reduce EXPR as $VAR (INIT; UPDATE)
   private parseReduce(): AstNode {
     const token = this.expect(TokenType.Reduce);
-    const expr = this.parsePostfix();
+    const expr = this.parseComma();
     this.expect(TokenType.As);
     const pattern = this.parsePattern();
     this.expect(TokenType.LParen);
@@ -643,7 +706,7 @@ class Parser {
   // foreach EXPR as $VAR (INIT; UPDATE; EXTRACT?)
   private parseForeach(): AstNode {
     const token = this.expect(TokenType.Foreach);
-    const expr = this.parsePostfix();
+    const expr = this.parseComma();
     this.expect(TokenType.As);
     const pattern = this.parsePattern();
     this.expect(TokenType.LParen);

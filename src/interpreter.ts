@@ -129,14 +129,26 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
         key: compile(entry.key, env),
         value: entry.value
           ? compile(entry.value, env)
-          : compile(
-              {
-                kind: "field",
-                name: (entry.key as { value: string }).value as string,
-                pos: entry.key.pos,
-              },
-              env,
-            ),
+          : entry.key.kind === "literal" &&
+              typeof (entry.key as { value: unknown }).value === "string"
+            ? compile(
+                {
+                  kind: "field",
+                  name: (entry.key as { value: string }).value as string,
+                  pos: entry.key.pos,
+                },
+                env,
+              )
+            : // For computed keys (e.g. string interpolation), use index access
+              ((keyFn) => (input: JsonValue) => {
+                const keys = keyFn(input);
+                return keys.flatMap((k) => {
+                  if (input !== null && typeof input === "object" && !Array.isArray(input)) {
+                    return [(input as Record<string, JsonValue>)[String(k)] ?? null];
+                  }
+                  return [null];
+                });
+              })(compile(entry.key, env)),
       }));
       return (input) => {
         let results: JsonValue[] = [{}];
@@ -345,7 +357,7 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
         };
       }
       return (_input) => {
-        if (node.name === "$__loc__") return [{ file: "<stdin>", line: 1 }];
+        if (node.name === "$__loc__") return [{ file: "<top-level>", line: 1 }];
         if (node.name === "$ENV") {
           const result: Record<string, JsonValue> = {};
           for (const [k, v] of Object.entries(process.env)) {
