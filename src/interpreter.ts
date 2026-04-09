@@ -1473,10 +1473,10 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
             flagsFn ? (flagsFn(input)[0] ?? null) : null,
             "",
           );
-          if (hasGlobal) return collectAllMatches(re, input);
+          if (hasGlobal) return collectAllMatches(re, input).map(stripNamedCaptures);
           const m = re.exec(input);
           if (!m) return [];
-          return [buildMatchObject(m)];
+          return [stripNamedCaptures(buildMatchObject(m))];
         });
       };
     }
@@ -2009,8 +2009,11 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
             }
           }
           // Generate jq-compatible error messages
-          if (input.startsWith("'") || input.includes("'")) {
-            const col = input.indexOf("'") + 1;
+          if (input.includes("'")) {
+            // jq reports column at the position after the single-quoted string
+            const firstQuote = input.indexOf("'");
+            const secondQuote = input.indexOf("'", firstQuote + 1);
+            const col = secondQuote >= 0 ? secondQuote + 2 : firstQuote + 2;
             throw new JqRuntimeError(
               `Invalid string literal; expected ", but got ' at line 1, column ${col} (while parsing '${input}')`,
             );
@@ -2029,10 +2032,19 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
 
     case "implode":
       return (input) => {
-        if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot implode ${jqType(input)}`);
+        if (!Array.isArray(input)) throw new JqRuntimeError(`implode input must be an array`);
         const REPLACEMENT = 0xfffd;
-        const codepoints = (input as number[]).map((cp) => {
-          if (typeof cp !== "number") throw new JqRuntimeError("Codepoints must be numbers");
+        const codepoints = (input as unknown[]).map((cp) => {
+          if (typeof cp !== "number") {
+            throw new JqRuntimeError(
+              `string (${JSON.stringify(cp)}) can't be imploded, unicode codepoint needs to be numeric`,
+            );
+          }
+          if (isNaN(cp)) {
+            throw new JqRuntimeError(
+              `number (null) can't be imploded, unicode codepoint needs to be numeric`,
+            );
+          }
           const n = Math.trunc(cp);
           if (n < 0 || n > 0x10ffff) return REPLACEMENT;
           if (n >= 0xd800 && n <= 0xdfff) return REPLACEMENT;
@@ -4552,6 +4564,18 @@ function buildMatchObject(m: RegExpExecArray): JsonValue {
     captures,
     ...namedCaptures,
   };
+}
+
+/** Strip named capture groups from a match object for external output (match/capture builtins) */
+function stripNamedCaptures(obj: JsonValue): JsonValue {
+  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return obj;
+  const result: Record<string, JsonValue> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === "offset" || k === "length" || k === "string" || k === "captures") {
+      result[k] = v;
+    }
+  }
+  return result;
 }
 
 function collectAllMatches(re: RegExp, input: string): JsonValue[] {

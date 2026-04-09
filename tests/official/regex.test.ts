@@ -567,7 +567,11 @@ describe("jq official: regex", () => {
 
   // line 2398: map(try implode catch .)
   test(`map(try implode catch .) | [123,["a"],[nan]]`, () => {
-    const input = JSON.parse(`[123,["a"],[nan]]`);
+    const input = (() => {
+      const nan = NaN,
+        NaN_ = NaN;
+      return [123, ["a"], [NaN]];
+    })();
     const result = jq(`map(try implode catch .)`, input);
     expect(result).toEqual([
       JSON.parse(

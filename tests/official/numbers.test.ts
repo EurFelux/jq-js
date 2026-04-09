@@ -361,7 +361,11 @@ describe("jq official: numbers", () => {
 
   // line 2310: tojson | fromjson
   test(`tojson | fromjson | {"a":nan}`, () => {
-    const input = JSON.parse(`{"a":nan}`);
+    const input = (() => {
+      const nan = NaN,
+        NaN_ = NaN;
+      return { a: NaN };
+    })();
     const result = jq(`tojson | fromjson`, input);
     expect(result).toEqual([JSON.parse(`{"a":null}`)]);
   });
