@@ -128,6 +128,40 @@ function escapeTemplateLiteral(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
 }
 
+/** Check if a JSON string contains non-standard values (nan, Infinity, etc.) that JSON.parse can't handle */
+function hasNonStandardJson(s: string): boolean {
+  // Match nan, NaN, -NaN, Infinity, -Infinity as standalone tokens (not inside strings)
+  // Simple heuristic: check outside of quoted strings
+  let inString = false;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '"' && (i === 0 || s[i - 1] !== '\\')) {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    const rest = s.slice(i);
+    if (/^-?[Nn]a[Nn]\b/.test(rest) || /^-?[Ii]nfinity\b/.test(rest)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Generate a JS expression that evaluates to the parsed value, handling nan/Infinity */
+function jsonParseExpr(escaped: string): string {
+  if (!hasNonStandardJson(escaped)) {
+    return `JSON.parse(\`${escaped}\`)`;
+  }
+  // Replace non-standard tokens with JS equivalents
+  // We generate inline JS: e.g. {"a":nan} → ({"a":NaN})
+  // Convert the jq JSON to valid JS by replacing nan→NaN, Infinity→Infinity (already valid JS)
+  let js = escaped;
+  // Replace standalone nan/NaN (not inside strings) with NaN
+  // Since this is used in template literals, we need to be careful
+  // Simplest: use Function constructor or just inline the object literal
+  return `((() => { const nan = NaN, NaN_ = NaN; return (${js.replace(/\bnan\b/g, 'NaN').replace(/-NaN\b/g, 'NaN')}); })())`;
+}
+
 function generateTestFile(moduleName: string, cases: TestCase[]): string {
   const lines: string[] = [];
   lines.push(`// Auto-generated from jq's test suite (ref-jq/tests/jq.test)`);
@@ -145,12 +179,12 @@ function generateTestFile(moduleName: string, cases: TestCase[]): string {
 
     const expectedItems = tc.outputs.map((o) => {
       const escaped = escapeTemplateLiteral(o);
-      return `JSON.parse(\`${escaped}\`)`;
+      return jsonParseExpr(escaped);
     });
 
     lines.push(`  // line ${tc.line}: ${tc.filter}`);
     lines.push(`  test(\`${filterEsc} | ${inputEsc}\`, () => {`);
-    lines.push(`    const input = JSON.parse(\`${inputEsc}\`);`);
+    lines.push(`    const input = ${jsonParseExpr(inputEsc)};`);
     lines.push(`    const result = jq(\`${filterEsc}\`, input);`);
     lines.push(`    expect(result).toEqual([${expectedItems.join(', ')}]);`);
     lines.push(`  });`);

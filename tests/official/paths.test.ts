@@ -351,7 +351,11 @@ describe("jq official: paths", () => {
 
   // line 1306: .[] = 1
   test(`.[] = 1 | [1,null,Infinity,-Infinity,NaN,-NaN]`, () => {
-    const input = JSON.parse(`[1,null,Infinity,-Infinity,NaN,-NaN]`);
+    const input = (() => {
+      const nan = NaN,
+        NaN_ = NaN;
+      return [1, null, Infinity, -Infinity, NaN, NaN];
+    })();
     const result = jq(`.[] = 1`, input);
     expect(result).toEqual([JSON.parse(`[1,1,1,1,1,1]`)]);
   });
