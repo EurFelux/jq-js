@@ -774,9 +774,9 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
 
     case "values":
       return (input) => {
-        if (Array.isArray(input)) return [input];
-        if (input !== null && typeof input === "object") return [Object.values(input)];
-        throw new JqRuntimeError(`${jqType(input)} has no values`);
+        // Type selector: pass through non-null values, filter out null
+        if (input === null) return [];
+        return [input];
       };
 
     case "type":
@@ -980,9 +980,11 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       if (args.length !== 1) throw new JqRuntimeError("ltrimstr/1 requires 1 argument");
       const argFn = compile(args[0]!, env);
       return (input) => {
-        if (typeof input !== "string") return [input];
         return argFn(input).map((prefix) => {
-          if (typeof prefix === "string" && input.startsWith(prefix)) {
+          if (typeof input !== "string" || typeof prefix !== "string") {
+            throw new JqRuntimeError("startswith() requires string inputs");
+          }
+          if (input.startsWith(prefix)) {
             return input.slice(prefix.length);
           }
           return input;
@@ -994,9 +996,11 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       if (args.length !== 1) throw new JqRuntimeError("rtrimstr/1 requires 1 argument");
       const argFn = compile(args[0]!, env);
       return (input) => {
-        if (typeof input !== "string") return [input];
         return argFn(input).map((suffix) => {
-          if (typeof suffix === "string" && input.endsWith(suffix)) {
+          if (typeof input !== "string" || typeof suffix !== "string") {
+            throw new JqRuntimeError("endswith() requires string inputs");
+          }
+          if (suffix.length > 0 && input.endsWith(suffix)) {
             return input.slice(0, -suffix.length);
           }
           return input;
@@ -1819,8 +1823,13 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       };
 
     case "abs":
+    case "fabs":
       return (input) => {
-        if (typeof input === "number") return [Math.abs(input)];
+        if (typeof input === "number") {
+          const v = Math.abs(input);
+          // Handle -0 → 0
+          return [v === 0 ? 0 : v];
+        }
         throw new JqRuntimeError(`Cannot take abs of ${jqType(input)}`);
       };
 
@@ -2073,6 +2082,127 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       };
     }
 
+    case "toboolean":
+      return (input) => {
+        if (input === true) return [true];
+        if (input === false) return [false];
+        if (input === "true") return [true];
+        if (input === "false") return [false];
+        throw new JqRuntimeError(
+          `${jqType(input)} (${JSON.stringify(input)}) cannot be parsed as a boolean`,
+        );
+      };
+
+    case "skip": {
+      if (args.length !== 2) throw new JqRuntimeError("skip/2 requires 2 arguments");
+      const nFn = compile(args[0]!, env);
+      const exprFn = compile(args[1]!, env);
+      return (input) => {
+        const results: JsonValue[] = [];
+        for (const n of nFn(input)) {
+          if (typeof n !== "number") throw new JqRuntimeError("skip count must be a number");
+          if (n < 0) throw new JqRuntimeError("skip doesn't support negative count");
+          const all = exprFn(input);
+          results.push(...all.slice(n));
+        }
+        return results;
+      };
+    }
+
+    case "pick": {
+      if (args.length !== 1) throw new JqRuntimeError("pick/1 requires 1 argument");
+      return (input) => {
+        const paths: JsonValue[][] = [];
+        collectPaths(input, args[0]!, paths);
+        let result: JsonValue = null;
+        for (const p of paths) {
+          const val = getPath(input, p);
+          result = setPath(result, p, val);
+        }
+        return [result];
+      };
+    }
+
+    case "trim":
+    case "ltrim":
+    case "rtrim":
+      return (input) => {
+        if (typeof input !== "string") throw new JqRuntimeError("trim input must be a string");
+        if (name === "trim") return [input.replace(WS_START, "").replace(WS_END, "")];
+        if (name === "ltrim") return [input.replace(WS_START, "")];
+        return [input.replace(WS_END, "")];
+      };
+
+    case "trimstr": {
+      if (args.length !== 1) throw new JqRuntimeError("trimstr/1 requires 1 argument");
+      const strFn = compile(args[0]!, env);
+      return (input) => {
+        if (typeof input !== "string")
+          throw new JqRuntimeError(`trimstr requires a string, got ${jqType(input)}`);
+        const results: JsonValue[] = [];
+        for (const s of strFn(input)) {
+          if (typeof s !== "string") throw new JqRuntimeError("trimstr argument must be a string");
+          let r = input;
+          if (r.startsWith(s)) r = r.slice(s.length);
+          if (r.endsWith(s)) r = r.slice(0, r.length - s.length);
+          results.push(r);
+        }
+        return results;
+      };
+    }
+
+    case "isempty": {
+      if (args.length !== 1) throw new JqRuntimeError("isempty/1 requires 1 argument");
+      const fn = compile(args[0]!, env);
+      return (input) => {
+        try {
+          const results = fn(input);
+          return [results.length === 0];
+        } catch {
+          return [false];
+        }
+      };
+    }
+
+    case "strflocaltime": {
+      if (args.length !== 1) throw new JqRuntimeError("strflocaltime requires 1 argument");
+      const fmtFilter = compile(args[0]!, env);
+      return (input) => {
+        let timestamp: number;
+        if (typeof input === "number") {
+          timestamp = input;
+        } else if (Array.isArray(input)) {
+          // Broken-down time array: [year, month(0-based), day, hour, min, sec, weekday, yearday]
+          // Validate that first element is a number
+          if (typeof input[0] !== "number") {
+            throw new JqRuntimeError("strflocaltime/1 requires parsed datetime inputs");
+          }
+          const yr = input[0] as number;
+          const mo = (input[1] as number) ?? 0;
+          const dy = (input[2] as number) ?? 1;
+          const hr = (input[3] as number) ?? 0;
+          const mi = (input[4] as number) ?? 0;
+          const sc = (input[5] as number) ?? 0;
+          timestamp = new Date(yr + 1900, mo, dy, hr, mi, sc).getTime() / 1000;
+        } else {
+          throw new JqRuntimeError(`strflocaltime/1 requires parsed datetime inputs`);
+        }
+        const fmtValues = fmtFilter(input);
+        const results: JsonValue[] = [];
+        for (const fmt of fmtValues) {
+          if (typeof fmt !== "string")
+            throw new JqRuntimeError("strflocaltime format must be a string");
+          results.push(formatStrflocaltime(fmt, timestamp));
+        }
+        return results;
+      };
+    }
+
+    case "modulemeta":
+      return () => {
+        return [{ version: null, deps: [], defs: [] }];
+      };
+
     default:
       throw new JqRuntimeError(`Unknown function: ${name}`);
   }
@@ -2205,6 +2335,12 @@ function applyFormat(name: string, input: JsonValue, pos: number): JsonValue {
     case "uri": {
       const str = typeof input === "string" ? input : JSON.stringify(input);
       return encodeURIComponent(str);
+    }
+    case "urid": {
+      if (typeof input !== "string") {
+        throw new JqRuntimeError("@urid requires string input");
+      }
+      return decodeURIComponent(input);
     }
     case "text":
       return jsonToString(input);
@@ -2515,6 +2651,10 @@ function collectPaths(
   }
 }
 
+// --- Whitespace regex for trim ---
+const WS_START = /^[\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/;
+const WS_END = /[\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/;
+
 // --- Date/time helpers ---
 
 const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -2622,6 +2762,98 @@ function formatStrftime(fmt: string, timestamp: number): string {
           break;
         case "z":
           result += "+0000";
+          break;
+        case "s":
+          result += `${Math.floor(d.getTime() / 1000)}`;
+          break;
+        case "n":
+          result += "\n";
+          break;
+        case "t":
+          result += "\t";
+          break;
+        case "e":
+          result += mday < 10 ? ` ${mday}` : `${mday}`;
+          break;
+        case "%":
+          result += "%";
+          break;
+        default:
+          result += `%${spec}`;
+          break;
+      }
+      i += 2;
+    } else {
+      result += fmt[i];
+      i++;
+    }
+  }
+  return result;
+}
+
+function formatStrflocaltime(fmt: string, timestamp: number): string {
+  const d = new Date(timestamp * 1000);
+  const year = d.getFullYear();
+  const mon = d.getMonth();
+  const mday = d.getDate();
+  const hour = d.getHours();
+  const min = d.getMinutes();
+  const sec = d.getSeconds();
+  const wday = d.getDay();
+  const startOfYear = new Date(year, 0, 1).getTime();
+  const yday = Math.floor((d.getTime() - startOfYear) / 86400000);
+  const tzOffset = -d.getTimezoneOffset();
+  const tzSign = tzOffset >= 0 ? "+" : "-";
+  const tzHours = pad2(Math.floor(Math.abs(tzOffset) / 60));
+  const tzMins = pad2(Math.abs(tzOffset) % 60);
+
+  let result = "";
+  let i = 0;
+  while (i < fmt.length) {
+    if (fmt[i] === "%" && i + 1 < fmt.length) {
+      const spec = fmt[i + 1]!;
+      switch (spec) {
+        case "Y":
+          result += `${year}`;
+          break;
+        case "m":
+          result += pad2(mon + 1);
+          break;
+        case "d":
+          result += pad2(mday);
+          break;
+        case "H":
+          result += pad2(hour);
+          break;
+        case "M":
+          result += pad2(min);
+          break;
+        case "S":
+          result += pad2(sec);
+          break;
+        case "j":
+          result += pad3(yday + 1);
+          break;
+        case "a":
+          result += WEEKDAYS_SHORT[wday]!;
+          break;
+        case "A":
+          result += WEEKDAYS_LONG[wday]!;
+          break;
+        case "b":
+          result += MONTHS_SHORT[mon]!;
+          break;
+        case "B":
+          result += MONTHS_LONG[mon]!;
+          break;
+        case "Z":
+          result +=
+            Intl.DateTimeFormat("en", { timeZoneName: "short" })
+              .formatToParts(d)
+              .find((p) => p.type === "timeZoneName")?.value ?? "";
+          break;
+        case "z":
+          result += `${tzSign}${tzHours}${tzMins}`;
           break;
         case "s":
           result += `${Math.floor(d.getTime() / 1000)}`;
@@ -2908,6 +3140,17 @@ const BUILTIN_NAMES = [
   "fromdate",
   "dateadd",
   "datesub",
+  "toboolean",
+  "skip",
+  "pick",
+  "trim",
+  "ltrim",
+  "rtrim",
+  "trimstr",
+  "isempty",
+  "strflocaltime",
+  "modulemeta",
+  "@urid",
 ];
 
 // --- Regex helpers ---

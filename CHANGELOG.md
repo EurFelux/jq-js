@@ -4,6 +4,8 @@
 
 ### Features
 
+- **New builtins**: `toboolean`, `skip/2`, `pick/1`, `trim`, `ltrim`, `rtrim`, `trimstr/1`, `fabs`, `isempty/1`, `strflocaltime/1`, `modulemeta` (stub), `@urid` format (#36)
+- **`values` type selector**: `values` now acts as a type selector (passes non-null, filters null) matching jq 1.7+ behavior
 - **Format strings**: `@base64`, `@base64d`, `@html`, `@csv`, `@tsv`, `@json`, `@uri`, `@text`, `@sh` with string interpolation support (#5)
 - **bsearch**: Binary search on sorted arrays (#36)
 - **transpose**: Matrix transpose with null padding (#36)
@@ -21,6 +23,8 @@
 
 ### Bug Fixes
 
+- **rtrimstr**: Fix `rtrimstr("")` incorrectly emptying strings (#36)
+- **ltrimstr/rtrimstr**: Error on non-string inputs matching jq behavior (#36)
 - **ascii_downcase/ascii_upcase**: Only affect ASCII letters (a-z, A-Z), not Unicode (#36)
 - **flatten**: Negative depth now correctly throws an error (#36)
 
