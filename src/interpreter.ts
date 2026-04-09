@@ -1848,6 +1848,128 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         return [result];
       };
 
+    // --- Date/time functions ---
+
+    case "now":
+      return () => [Math.floor(Date.now() / 1000)];
+
+    case "gmtime":
+      return (input) => {
+        if (typeof input !== "number")
+          throw new JqRuntimeError(`gmtime requires a number, got ${jqType(input)}`);
+        const d = new Date(input * 1000);
+        const year = d.getUTCFullYear();
+        const mon = d.getUTCMonth();
+        const mday = d.getUTCDate();
+        const hour = d.getUTCHours();
+        const min = d.getUTCMinutes();
+        const sec = d.getUTCSeconds();
+        const wday = d.getUTCDay();
+        // Calculate day of year
+        const startOfYear = Date.UTC(year, 0, 1);
+        const yday = Math.floor((d.getTime() - startOfYear) / 86400000);
+        return [[sec, min, hour, mday, mon, year - 1900, wday, yday]];
+      };
+
+    case "mktime":
+      return (input) => {
+        if (!Array.isArray(input) || input.length < 6)
+          throw new JqRuntimeError("mktime requires a broken-down time array");
+        const [sec, min, hour, mday, mon, tmYear] = input as number[];
+        const year = tmYear! + 1900;
+        const ts = Date.UTC(year, mon!, mday!, hour!, min!, sec!) / 1000;
+        return [ts];
+      };
+
+    case "strftime": {
+      if (args.length !== 1) throw new JqRuntimeError("strftime requires 1 argument");
+      const fmtFilter = compile(args[0]!, env);
+      return (input) => {
+        if (typeof input !== "number")
+          throw new JqRuntimeError(`strftime requires a number input, got ${jqType(input)}`);
+        const fmtValues = fmtFilter(input);
+        const results: JsonValue[] = [];
+        for (const fmt of fmtValues) {
+          if (typeof fmt !== "string") throw new JqRuntimeError("strftime format must be a string");
+          results.push(formatStrftime(fmt, input));
+        }
+        return results;
+      };
+    }
+
+    case "strptime": {
+      if (args.length !== 1) throw new JqRuntimeError("strptime requires 1 argument");
+      const fmtFilter = compile(args[0]!, env);
+      return (input) => {
+        if (typeof input !== "string")
+          throw new JqRuntimeError(`strptime requires a string input, got ${jqType(input)}`);
+        const fmtValues = fmtFilter(input);
+        const results: JsonValue[] = [];
+        for (const fmt of fmtValues) {
+          if (typeof fmt !== "string") throw new JqRuntimeError("strptime format must be a string");
+          results.push(parseStrptime(input, fmt));
+        }
+        return results;
+      };
+    }
+
+    case "todate":
+    case "date":
+      return (input) => {
+        if (typeof input !== "number")
+          throw new JqRuntimeError(`todate requires a number, got ${jqType(input)}`);
+        return [formatStrftime("%Y-%m-%dT%H:%M:%SZ", input)];
+      };
+
+    case "fromdate":
+      return (input) => {
+        if (typeof input !== "string")
+          throw new JqRuntimeError(`fromdate requires a string, got ${jqType(input)}`);
+        const d = new Date(input);
+        if (isNaN(d.getTime())) throw new JqRuntimeError(`Invalid date string: ${input}`);
+        return [Math.floor(d.getTime() / 1000)];
+      };
+
+    case "dateadd": {
+      if (args.length !== 2) throw new JqRuntimeError("dateadd requires 2 arguments");
+      const unitFilter = compile(args[0]!, env);
+      const amountFilter = compile(args[1]!, env);
+      return (input) => {
+        if (typeof input !== "number")
+          throw new JqRuntimeError(`dateadd requires a number input, got ${jqType(input)}`);
+        const results: JsonValue[] = [];
+        for (const unit of unitFilter(input)) {
+          for (const amount of amountFilter(input)) {
+            if (typeof unit !== "string") throw new JqRuntimeError("dateadd unit must be a string");
+            if (typeof amount !== "number")
+              throw new JqRuntimeError("dateadd amount must be a number");
+            results.push(dateAdd(input, unit, amount));
+          }
+        }
+        return results;
+      };
+    }
+
+    case "datesub": {
+      if (args.length !== 2) throw new JqRuntimeError("datesub requires 2 arguments");
+      const unitFilter = compile(args[0]!, env);
+      const amountFilter = compile(args[1]!, env);
+      return (input) => {
+        if (typeof input !== "number")
+          throw new JqRuntimeError(`datesub requires a number input, got ${jqType(input)}`);
+        const results: JsonValue[] = [];
+        for (const unit of unitFilter(input)) {
+          for (const amount of amountFilter(input)) {
+            if (typeof unit !== "string") throw new JqRuntimeError("datesub unit must be a string");
+            if (typeof amount !== "number")
+              throw new JqRuntimeError("datesub amount must be a number");
+            results.push(dateAdd(input, unit, -amount));
+          }
+        }
+        return results;
+      };
+    }
+
     default:
       throw new JqRuntimeError(`Unknown function: ${name}`);
   }
@@ -2286,6 +2408,266 @@ function collectPaths(
   }
 }
 
+// --- Date/time helpers ---
+
+const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS_LONG = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+const MONTHS_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+const MONTHS_LONG = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+function pad3(n: number): string {
+  if (n < 10) return `00${n}`;
+  if (n < 100) return `0${n}`;
+  return `${n}`;
+}
+
+function formatStrftime(fmt: string, timestamp: number): string {
+  const d = new Date(timestamp * 1000);
+  const year = d.getUTCFullYear();
+  const mon = d.getUTCMonth();
+  const mday = d.getUTCDate();
+  const hour = d.getUTCHours();
+  const min = d.getUTCMinutes();
+  const sec = d.getUTCSeconds();
+  const wday = d.getUTCDay();
+  const startOfYear = Date.UTC(year, 0, 1);
+  const yday = Math.floor((d.getTime() - startOfYear) / 86400000);
+
+  let result = "";
+  let i = 0;
+  while (i < fmt.length) {
+    if (fmt[i] === "%" && i + 1 < fmt.length) {
+      const spec = fmt[i + 1]!;
+      switch (spec) {
+        case "Y":
+          result += `${year}`;
+          break;
+        case "m":
+          result += pad2(mon + 1);
+          break;
+        case "d":
+          result += pad2(mday);
+          break;
+        case "H":
+          result += pad2(hour);
+          break;
+        case "M":
+          result += pad2(min);
+          break;
+        case "S":
+          result += pad2(sec);
+          break;
+        case "j":
+          result += pad3(yday + 1);
+          break;
+        case "a":
+          result += WEEKDAYS_SHORT[wday]!;
+          break;
+        case "A":
+          result += WEEKDAYS_LONG[wday]!;
+          break;
+        case "b":
+          result += MONTHS_SHORT[mon]!;
+          break;
+        case "B":
+          result += MONTHS_LONG[mon]!;
+          break;
+        case "Z":
+          result += "UTC";
+          break;
+        case "z":
+          result += "+0000";
+          break;
+        case "s":
+          result += `${Math.floor(d.getTime() / 1000)}`;
+          break;
+        case "n":
+          result += "\n";
+          break;
+        case "t":
+          result += "\t";
+          break;
+        case "e":
+          result += mday < 10 ? ` ${mday}` : `${mday}`;
+          break;
+        case "%":
+          result += "%";
+          break;
+        default:
+          result += `%${spec}`;
+          break;
+      }
+      i += 2;
+    } else {
+      result += fmt[i];
+      i++;
+    }
+  }
+  return result;
+}
+
+function parseStrptime(input: string, fmt: string): JsonValue {
+  // Basic strptime implementation for common format specifiers
+  let year = 1970,
+    mon = 0,
+    mday = 1,
+    hour = 0,
+    min = 0,
+    sec = 0;
+  let fi = 0,
+    si = 0;
+
+  while (fi < fmt.length && si < input.length) {
+    if (fmt[fi] === "%" && fi + 1 < fmt.length) {
+      const spec = fmt[fi + 1]!;
+      fi += 2;
+      switch (spec) {
+        case "Y": {
+          const m = input.slice(si).match(/^(\d{4})/);
+          if (m) {
+            year = parseInt(m[1]!, 10);
+            si += m[1]!.length;
+          }
+          break;
+        }
+        case "m": {
+          const m = input.slice(si).match(/^(\d{1,2})/);
+          if (m) {
+            mon = parseInt(m[1]!, 10) - 1;
+            si += m[1]!.length;
+          }
+          break;
+        }
+        case "d": {
+          const m = input.slice(si).match(/^(\d{1,2})/);
+          if (m) {
+            mday = parseInt(m[1]!, 10);
+            si += m[1]!.length;
+          }
+          break;
+        }
+        case "H": {
+          const m = input.slice(si).match(/^(\d{1,2})/);
+          if (m) {
+            hour = parseInt(m[1]!, 10);
+            si += m[1]!.length;
+          }
+          break;
+        }
+        case "M": {
+          const m = input.slice(si).match(/^(\d{1,2})/);
+          if (m) {
+            min = parseInt(m[1]!, 10);
+            si += m[1]!.length;
+          }
+          break;
+        }
+        case "S": {
+          const m = input.slice(si).match(/^(\d{1,2})/);
+          if (m) {
+            sec = parseInt(m[1]!, 10);
+            si += m[1]!.length;
+          }
+          break;
+        }
+        case "Z": {
+          // Skip timezone name
+          const m = input.slice(si).match(/^([A-Za-z]+)/);
+          if (m) {
+            si += m[1]!.length;
+          }
+          break;
+        }
+        case "z": {
+          // Skip timezone offset
+          const m = input.slice(si).match(/^([+-]\d{4})/);
+          if (m) {
+            si += m[1]!.length;
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    } else {
+      // Literal character match
+      si++;
+      fi++;
+    }
+  }
+
+  const d = new Date(Date.UTC(year, mon, mday, hour, min, sec));
+  const actualYear = d.getUTCFullYear();
+  const startOfYear = Date.UTC(actualYear, 0, 1);
+  const yday = Math.floor((d.getTime() - startOfYear) / 86400000);
+  const wday = d.getUTCDay();
+
+  return [sec, min, hour, mday, mon, actualYear - 1900, wday, yday];
+}
+
+function dateAdd(timestamp: number, unit: string, amount: number): number {
+  switch (unit) {
+    case "years": {
+      const d = new Date(timestamp * 1000);
+      d.setUTCFullYear(d.getUTCFullYear() + amount);
+      return Math.floor(d.getTime() / 1000);
+    }
+    case "months": {
+      const d = new Date(timestamp * 1000);
+      d.setUTCMonth(d.getUTCMonth() + amount);
+      return Math.floor(d.getTime() / 1000);
+    }
+    case "days":
+      return timestamp + amount * 86400;
+    case "hours":
+      return timestamp + amount * 3600;
+    case "minutes":
+      return timestamp + amount * 60;
+    case "seconds":
+      return timestamp + amount;
+    default:
+      throw new JqRuntimeError(`Unknown time unit: ${unit}`);
+  }
+}
+
 const BUILTIN_NAMES = [
   "length",
   "utf8bytelength",
@@ -2409,6 +2791,16 @@ const BUILTIN_NAMES = [
   "INDEX",
   "IN",
   "env",
+  "now",
+  "gmtime",
+  "mktime",
+  "strftime",
+  "strptime",
+  "todate",
+  "date",
+  "fromdate",
+  "dateadd",
+  "datesub",
 ];
 
 // --- Regex helpers ---
