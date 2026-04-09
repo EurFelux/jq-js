@@ -444,6 +444,12 @@ class Parser {
         return { kind: "format", name: token.value, str, pos: token.pos };
       }
 
+      case TokenType.Import:
+        return this.parseImport();
+
+      case TokenType.Include:
+        return this.parseInclude();
+
       case TokenType.Ident:
         return this.parseFuncOrIdent();
 
@@ -659,6 +665,49 @@ class Parser {
     this.expect(TokenType.Pipe);
     const body = this.parsePipe();
     return { kind: "label", name: name.value, body, pos: token.pos };
+  }
+
+  // import "path" as NAME; REST
+  // import "path" as $name; REST
+  private parseImport(): AstNode {
+    const token = this.expect(TokenType.Import);
+    const path = this.expect(TokenType.String);
+
+    // Optional metadata object before "as"
+    let metadata: AstNode | null = null;
+    if (this.peek().type === TokenType.LBrace) {
+      metadata = this.parseObject();
+    }
+
+    this.expect(TokenType.As);
+
+    // Alias can be an identifier or a variable ($name)
+    let alias: string;
+    if (this.peek().type === TokenType.Variable) {
+      alias = this.advance().value;
+    } else {
+      alias = this.expect(TokenType.Ident).value;
+    }
+
+    this.expect(TokenType.Semicolon);
+    const next = this.parsePipe();
+    return { kind: "import", path: path.value, alias, metadata, next, pos: token.pos };
+  }
+
+  // include "path"; REST
+  private parseInclude(): AstNode {
+    const token = this.expect(TokenType.Include);
+    const path = this.expect(TokenType.String);
+
+    // Optional metadata object
+    let metadata: AstNode | null = null;
+    if (this.peek().type === TokenType.LBrace) {
+      metadata = this.parseObject();
+    }
+
+    this.expect(TokenType.Semicolon);
+    const next = this.parsePipe();
+    return { kind: "include", path: path.value, metadata, next, pos: token.pos };
   }
 
   // def NAME(PARAMS): BODY; REST

@@ -31,7 +31,9 @@ export type AstNode =
   | UpdateNode
   | AssignNode
   | StringInterpolationNode
-  | FormatNode;
+  | FormatNode
+  | ImportNode
+  | IncludeNode;
 
 export interface IdentityNode {
   kind: "identity";
@@ -256,6 +258,23 @@ export interface AssignNode {
   kind: "assign";
   path: AstNode;
   value: AstNode;
+  pos: number;
+}
+
+export interface ImportNode {
+  kind: "import";
+  path: string;
+  alias: string;
+  metadata: AstNode | null;
+  next: AstNode;
+  pos: number;
+}
+
+export interface IncludeNode {
+  kind: "include";
+  path: string;
+  metadata: AstNode | null;
+  next: AstNode;
   pos: number;
 }
 

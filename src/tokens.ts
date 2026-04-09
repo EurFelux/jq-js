@@ -66,6 +66,8 @@ export enum TokenType {
   Foreach,
   Label,
   Break,
+  Import,
+  Include,
 
   // Format
   Format,

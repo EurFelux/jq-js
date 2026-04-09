@@ -485,4 +485,31 @@ describe("jq-js e2e", () => {
   ])("try-alternative patterns: jq(%j, %j) = %j", (filter, input, expected) => {
     expect(jq(filter, input)).toEqual(expected);
   });
+
+  // Module system / env
+  test.each([
+    ["env | type", null, ["object"]],
+    ["$ENV | type", null, ["object"]],
+  ])("modules: jq(%j, %j) = %j", (filter, input, expected) => {
+    expect(jq(filter, input)).toEqual(expected);
+  });
+
+  // Import/include parsing
+  test("import statement parses correctly", () => {
+    expect(() => jq('import "foo" as bar; .', null)).toThrow(
+      "Module system (import) is not yet supported in jq-js",
+    );
+  });
+
+  test("include statement parses correctly", () => {
+    expect(() => jq('include "foo"; .', null)).toThrow(
+      "Module system (include) is not yet supported in jq-js",
+    );
+  });
+
+  test("import with $data alias parses correctly", () => {
+    expect(() => jq('import "data" as $mydata; .', null)).toThrow(
+      "Module system (import) is not yet supported in jq-js",
+    );
+  });
 });
