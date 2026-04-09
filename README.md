@@ -13,7 +13,7 @@ A pure TypeScript implementation of [jq](https://jqlang.github.io/jq/), the JSON
 | **Native deps** | None | Requires `jq` installed | WASM binary (~400KB) | None |
 | **Tree-shakeable** | :white_check_mark: | :x: | :x: | :x: |
 | **TypeScript** | Written in TS, ships `.d.ts` | `@types/node-jq` | Minimal types | Ships `.d.ts` |
-| **Bundle size** | ~85KB (~21KB gzip) | N/A (native) | ~400KB (WASM) | ~74KB (~23KB gzip) |
+| **Bundle size** | ~85KB (~21KB gzip) | N/A (native) | ~1.4MB (~500KB gzip) | ~74KB (~23KB gzip) |
 
 jq-js is the only option that combines **real jq syntax**, **pure JS** (no WASM/native), and **proper ESM** with `type: "module"` and conditional `exports`.
 
