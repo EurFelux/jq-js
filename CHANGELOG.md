@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-04-10)
+
+Major edge-case and compatibility release — official test suite passing rate: **531/555 (95.7%)**.
 
 ### Features
 
@@ -68,6 +70,22 @@
 - **tonumber**: Strict validation rejecting strings with leading/trailing whitespace (#33)
 - **any/all**: Added 2-argument form `any(generator; condition)` / `all(generator; condition)` (#33)
 - **top-level execution**: Use `generateValues` for streaming evaluation, matching jq's per-element error handling (#33)
+- **Date/time array format**: Fixed broken-down time to match jq's `[year,month,mday,hour,min,sec,wday,yday]` format (#32)
+- **Float indexing**: `.[1.5]` truncates to `.[1]`, `.[nan]` returns null (#32)
+- **Label/break continuation**: `BreakSignal` now preserves accumulated results through pipe, comma, and foreach (#32)
+- **`sort_by` multiple keys**: `sort_by(.a, .b)` now sorts by multiple keys (#32)
+- **`group_by` sorting**: Groups are now sorted by key (#32)
+- **`@html`/`@uri`**: Use standard entity names and RFC 3986 encoding (#32)
+- **`implode` errors**: Match jq error message format for non-numeric codepoints (#32)
+- **`match` output**: Named captures no longer leak to top-level match object (#32)
+- **`fromjson` error column**: Column calculation matches jq for single-quoted strings (#32)
+- **Test generator**: Handle `nan`/`Infinity` in JSON, `#` comments, `%%FAIL` variants, BOM (#32)
+
+### Infrastructure
+
+- **Minification**: Post-build minification via `@swc/core` (ESM 155KB→85KB, CJS 155KB→95KB)
+- **Submodule**: `ref-jq` is now a git submodule for reproducible test generation
+- **Package renamed**: `jq-js` → `@eurfelux/jq-js` for npm publishing
 
 ## 0.2.0 (2026-04-09)
 
