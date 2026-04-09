@@ -95,7 +95,7 @@ filter({ foo: [10, 20] }); // => [[11, 21]]
 | Try-catch | `try expr catch handler` | :white_check_mark: |
 | Conditionals | `if-then-elif-else-end` | :white_check_mark: |
 | String interpolation | `"Hello \(.name)"` | :white_check_mark: |
-| Alternative | `//` | :white_check_mark: |
+| Alternative | `//`, `?//` | :white_check_mark: |
 | Arithmetic | `+` `-` `*` `/` `%` | :white_check_mark: |
 | Comparison | `==` `!=` `<` `>` `<=` `>=` | :white_check_mark: |
 | Logic | `and` `or` `not` | :white_check_mark: |
@@ -112,31 +112,51 @@ filter({ foo: [10, 20] }); // => [[11, 21]]
 
 **Type & Inspection**: `type`, `length`, `utf8bytelength`, `keys`, `values`, `has`, `contains`, `inside`, `builtins`
 
-**Transform**: `map`, `map_values`, `select`, `empty`, `add`, `any`, `all`, `flatten`, `range`, `reverse`, `sort`, `sort_by`, `group_by`, `unique`, `unique_by`, `min`, `max`, `min_by`, `max_by`, `limit`, `first`, `last`, `nth`
+**Transform**: `map`, `map_values`, `select`, `empty`, `add`, `any`, `all`, `flatten`, `range`, `reverse`, `sort`, `sort_by`, `group_by`, `unique`, `unique_by`, `min`, `max`, `min_by`, `max_by`, `limit`, `first`, `last`, `nth`, `skip`, `pick`, `isempty`, `transpose`, `bsearch`, `INDEX`, `IN`
 
-**String**: `tostring`, `tonumber`, `tojson`, `fromjson`, `ascii_downcase`, `ascii_upcase`, `ltrimstr`, `rtrimstr`, `startswith`, `endswith`, `split`, `join`, `explode`, `implode`, `index`, `rindex`, `indices`
+**String**: `tostring`, `tonumber`, `toboolean`, `tojson`, `fromjson`, `ascii_downcase`, `ascii_upcase`, `ltrimstr`, `rtrimstr`, `trimstr`, `trim`, `ltrim`, `rtrim`, `startswith`, `endswith`, `split`, `join`, `explode`, `implode`, `index`, `rindex`, `indices`
 
 **Regex**: `test`, `match`, `capture`, `scan`, `sub`, `gsub`, `splits`
 
 **Object**: `to_entries`, `from_entries`, `with_entries`, `keys_unsorted`
 
-**Path**: `path`, `getpath`, `setpath`, `delpaths`, `leaf_paths`
+**Path**: `path`, `paths`, `getpath`, `setpath`, `delpaths`, `leaf_paths`, `del`
 
-**Math**: `floor`, `ceil`, `round`, `sqrt`, `fabs`, `pow`, `log`, `log2`, `log10`, `exp`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `nan`, `infinite`, `isnan`, `isinfinite`, `isfinite`
+**Math**: `floor`, `ceil`, `round`, `sqrt`, `fabs`, `abs`, `pow`, `log`, `log2`, `log10`, `exp`, `exp2`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `nan`, `infinite`, `isnan`, `isinfinite`, `isfinite`, `isnormal`
 
-**Control**: `recurse`, `walk`, `until`, `while`, `repeat`, `error`, `debug`
+**Date/Time**: `now`, `gmtime`, `mktime`, `strftime`, `strptime`, `strflocaltime`, `todate`, `fromdate`, `date`, `dateadd`, `datesub`
 
-**Type filters**: `arrays`, `objects`, `numbers`, `strings`, `booleans`, `nulls`, `scalars`, `iterables`
+**Control**: `recurse`, `walk`, `until`, `while`, `repeat`, `error`, `debug`, `env`, `$ENV`
 
-### Not Yet Implemented
+**Type filters**: `arrays`, `objects`, `numbers`, `strings`, `booleans`, `nulls`, `scalars`, `iterables`, `values`
 
-- `@format` strings (`@base64`, `@html`, `@csv`, `@tsv`, `@uri`)
-- `import` / `include` (module system)
-- `$ENV` / `env`
-- `input` / `inputs` (streaming)
-- `strftime` / `strptime` (date functions)
-- `?//` (try-alternative operator)
-- `limit` with generators, `SQL`-style operators
+**Format Strings**: `@base64`, `@base64d`, `@html`, `@csv`, `@tsv`, `@json`, `@uri`, `@urid`, `@text`, `@sh`
+
+**Date/Time**: `now`, `gmtime`, `mktime`, `strftime`, `strptime`, `todate`, `fromdate`, `dateadd`, `datesub`
+
+**Additional**: `try-alternative (?//)`, `$ENV` / `env`, `bsearch`, `transpose`, `INDEX`, `IN`, `pick`, `isempty`, `trim` / `ltrim` / `rtrim`, `toboolean`, `skip`
+
+### Compatibility
+
+jq-js passes **531 of 555** official jq test cases (**95.7%**). The remaining gaps are:
+
+#### Not Supported
+
+| Feature | Reason |
+|---------|--------|
+| `import` / `include` (module system) | Requires filesystem access; not available in browsers. Parser accepts the syntax but runtime throws an error. |
+| Arbitrary precision numbers (`have_decnum`) | JavaScript uses IEEE 754 doubles. Numbers beyond `Number.MAX_SAFE_INTEGER` lose precision. Values like `1E+1000` become `Infinity`. |
+| `input` / `inputs` (streaming) | Not applicable — jq-js processes a single input value. |
+
+#### Known Limitations
+
+| Feature | Issue | Workaround |
+|---------|-------|------------|
+| Recursive update `(.. \| select(cond)) \|= expr` | Complex path updates through recursive descent are not fully supported | Use `path(.. \| select(cond))` with `setpath`/`getpath` |
+| `getpath(p) \|= expr` | Update-through-getpath not implemented | Use `setpath(p; getpath(p) \| expr)` |
+| Regex `gn` flag | The `n` flag (no-capture for unnamed groups) is not supported | Use named capture groups `(?<name>...)` |
+| Regex Unicode `\b` | JavaScript's `\b` does not support multi-codepoint graphemes (e.g. flag emoji) | Use explicit character classes |
+| Optional capture groups | JS regex returns `null` for non-participating groups; jq (Oniguruma) returns `""` | Check for both `null` and `""` in downstream code |
 
 ## Error Handling
 
