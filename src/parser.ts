@@ -116,14 +116,22 @@ class Parser {
     throw new JqParseError("Expected binding pattern ($var, [...], or {...})", this.peek().pos);
   }
 
-  private parsePatternObjectEntry(): { key: AstNode; pattern: BindingPattern } {
+  private parsePatternObjectEntry(): { key: AstNode; pattern: BindingPattern; varName?: string } {
     // {$var} shorthand — key is var name without $
     if (this.peek().type === TokenType.Variable) {
       const varToken = this.peek();
-      // Check if next is colon (key: $pattern) or comma/rbrace (shorthand)
+      // Check if next is colon ($var: pattern) or comma/rbrace (shorthand)
       if (this.tokens[this.pos + 1]?.type === TokenType.Colon) {
-        // name: $var — but this is {name: $var}
-        // Actually jq doesn't do this with $var as key, it's {key: $var}
+        // $var: pattern — key is var name without $, value is the pattern after colon
+        // Also bind $var to the value (jq semantics)
+        this.advance(); // consume $var
+        this.advance(); // consume :
+        const pattern = this.parsePattern();
+        return {
+          key: { kind: "literal", value: varToken.value.slice(1), pos: varToken.pos },
+          pattern,
+          varName: varToken.value,
+        };
       }
       const pattern = this.parsePattern();
       return {
@@ -329,10 +337,11 @@ class Parser {
       this.advance();
       const to = this.peek().type === TokenType.RBracket ? null : this.parsePipe();
       this.expect(TokenType.RBracket);
+      const useOriginalInput = left.kind !== "identity";
       return {
         kind: "pipe",
         left,
-        right: { kind: "slice", from: null, to, pos: bracketPos },
+        right: { kind: "slice", from: null, to, useOriginalInput, pos: bracketPos },
         pos: left.pos,
       };
     }
@@ -343,10 +352,11 @@ class Parser {
     if (this.match(TokenType.Colon)) {
       const to = this.peek().type === TokenType.RBracket ? null : this.parsePipe();
       this.expect(TokenType.RBracket);
+      const useOriginalInput = left.kind !== "identity";
       return {
         kind: "pipe",
         left,
-        right: { kind: "slice", from: indexExpr, to, pos: bracketPos },
+        right: { kind: "slice", from: indexExpr, to, useOriginalInput, pos: bracketPos },
         pos: left.pos,
       };
     }
@@ -828,18 +838,48 @@ class Parser {
     const name = this.expect(TokenType.Ident);
     const params: string[] = [];
 
+    // Track which params are $-prefixed (value params)
+    const valueParams: { index: number; varName: string }[] = [];
     if (this.match(TokenType.LParen)) {
       if (this.peek().type !== TokenType.RParen) {
-        params.push(this.expect(TokenType.Ident).value);
-        while (this.match(TokenType.Semicolon)) {
+        if (this.peek().type === TokenType.Variable) {
+          const v = this.advance();
+          // $x param desugars to: internal param name, body wrapped with "x as $x | ..."
+          params.push(v.value);
+          valueParams.push({ index: params.length - 1, varName: v.value });
+        } else {
           params.push(this.expect(TokenType.Ident).value);
+        }
+        while (this.match(TokenType.Semicolon)) {
+          if (this.peek().type === TokenType.Variable) {
+            const v = this.advance();
+            params.push(v.value);
+            valueParams.push({ index: params.length - 1, varName: v.value });
+          } else {
+            params.push(this.expect(TokenType.Ident).value);
+          }
         }
       }
       this.expect(TokenType.RParen);
     }
 
     this.expect(TokenType.Colon);
-    const body = this.parsePipe();
+    let body = this.parsePipe();
+
+    // Desugar $-prefixed params: def f($x; $y): body => def f($x; $y): $x as $x | $y as $y | body
+    // Each $-param is a filter param that we wrap with "paramName as $varName | ..."
+    for (let i = valueParams.length - 1; i >= 0; i--) {
+      const vp = valueParams[i]!;
+      body = {
+        kind: "as" as const,
+        expr: { kind: "func" as const, name: vp.varName, args: [], pos: token.pos },
+        pattern: { type: "variable" as const, name: vp.varName },
+        alternativePatterns: [],
+        body,
+        pos: token.pos,
+      };
+    }
+
     this.expect(TokenType.Semicolon);
     const next = this.parsePipe();
     return { kind: "def", name: name.value, params, body, next, pos: token.pos };
