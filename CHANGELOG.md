@@ -23,6 +23,20 @@
 
 ### Bug Fixes
 
+- **Arithmetic evaluation order**: Binary operators now use right-outer evaluation order matching jq semantics (#32)
+- **`splits("")`**: Empty regex split now correctly produces individual characters with boundary empty strings (#32)
+- **Postfix bracket `useOriginalInput`**: `.foo[.baz]`, `[][.]`, and `expr[from:to]` now correctly evaluate index/slice expressions against the original input (#32)
+- **`walk`**: When the walk function produces empty output (e.g., `select` filters), keys are omitted instead of set to null (#32)
+- **`(.a as $x | .b) = "b"`**: Assignment through `as` bindings now works correctly (#32)
+- **`def f($x;$y)`**: Support `$`-prefixed value parameters in function definitions (#32)
+- **Object destructuring `{$b:[$c,$d]}`**: `$`-prefixed keys with sub-patterns now also bind the variable to the extracted value (#32)
+- **`updatePathInner` func lookup**: Use arity-qualified key (`name/arity`) when looking up user-defined functions in path updates (#32)
+- **`getpath(p) |= expr`**: `getpath` now works as a valid path expression in updates (#32)
+- **Deep nesting**: `tojson` and `fromjson` now handle deeply nested structures (10000+ levels) without stack overflow (#32)
+- **`fromjson` depth limit**: Reject JSON input exceeding 10000 nesting levels with "Exceeds depth limit for parsing" (#32)
+- **`tojson` depth limit**: Emit `<skipped: too deep>` for structures exceeding 10000 levels (#32)
+- **`flatten`**: Use iterative implementation to handle deeply nested arrays without stack overflow (#32)
+- **Number formatting in errors**: Large numbers now display without scientific notation in error messages (#32)
 - **rtrimstr**: Fix `rtrimstr("")` incorrectly emptying strings (#36)
 - **ltrimstr/rtrimstr**: Error on non-string inputs matching jq behavior (#36)
 - **Keywords as object keys**: Allow keyword tokens (`if`, `and`, `or`, `as`, `try`, `catch`, etc.) as object keys in both shorthand `{as}` and `key: value` forms (#32)

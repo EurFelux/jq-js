@@ -57,6 +57,7 @@ export interface SliceNode {
   kind: "slice";
   from: AstNode | null;
   to: AstNode | null;
+  useOriginalInput?: boolean;
   pos: number;
 }
 
@@ -195,7 +196,7 @@ export interface VarRefNode {
 export type BindingPattern =
   | { type: "variable"; name: string }
   | { type: "array"; elements: BindingPattern[] }
-  | { type: "object"; entries: { key: AstNode; pattern: BindingPattern }[] };
+  | { type: "object"; entries: { key: AstNode; pattern: BindingPattern; varName?: string }[] };
 
 export interface AsNode {
   kind: "as";

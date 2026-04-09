@@ -123,9 +123,14 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
       const rightIsOrigIndex =
         node.right.kind === "index" &&
         (node.right as import("./ast.js").IndexNode).useOriginalInput;
-      const rightFn = rightIsOrigIndex
-        ? null // compile lazily below with original input context
-        : compile(node.right, env);
+      // Check if right side is a slice with useOriginalInput
+      const rightIsOrigSlice =
+        node.right.kind === "slice" &&
+        (node.right as import("./ast.js").SliceNode).useOriginalInput;
+      const rightFn =
+        rightIsOrigIndex || rightIsOrigSlice
+          ? null // compile lazily below with original input context
+          : compile(node.right, env);
       if (rightIsOrigIndex) {
         const indexNode = node.right as import("./ast.js").IndexNode;
         const indexFn = compile(indexNode.index, env);
@@ -158,7 +163,7 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
                   results.push(l[i] ?? null);
                 } else if (typeof idx === "string") {
                   if (typeof l !== "object" || Array.isArray(l)) {
-                    throw new JqRuntimeError(`Cannot index ${jqType(l)} with string "${idx}"`);
+                    throw new JqRuntimeError(`Cannot index ${jqType(l)} with string ("${idx}")`);
                   }
                   results.push((l as Record<string, JsonValue>)[idx] ?? null);
                 } else {
@@ -171,6 +176,41 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
                 throw e;
               }
               throw e;
+            }
+          }
+          return results;
+        };
+      }
+      if (rightIsOrigSlice) {
+        const sliceNode = node.right as import("./ast.js").SliceNode;
+        const fromFn = sliceNode.from ? compile(sliceNode.from, env) : null;
+        const toFn = sliceNode.to ? compile(sliceNode.to, env) : null;
+        return (input) => {
+          const leftResults = leftFn(input);
+          // Evaluate slice bounds on ORIGINAL input
+          const fromResults = fromFn ? fromFn(input) : [0];
+          const toResults = toFn ? toFn(input) : null;
+          const results: JsonValue[] = [];
+          for (const l of leftResults) {
+            if (l === null) {
+              results.push(null);
+              continue;
+            }
+            if (!Array.isArray(l) && typeof l !== "string") {
+              throw new JqRuntimeError(`Cannot slice ${jqType(l)}`);
+            }
+            const len = l.length;
+            const toRes = toResults ?? [len];
+            for (const f of fromResults) {
+              for (const t of toRes) {
+                const from = normalizeIndex(Math.floor(f as number), len, true);
+                const to = normalizeIndex(
+                  Number.isInteger(t as number) ? (t as number) : Math.ceil(t as number),
+                  len,
+                  false,
+                );
+                results.push(l.slice(from, to) as JsonValue);
+              }
             }
           }
           return results;
@@ -330,14 +370,14 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
       const leftFn = compile(node.left, env);
       const rightFn = compile(node.right, env);
       return (input) =>
-        leftFn(input).flatMap((l) => rightFn(input).map((r) => applyArith(node.op, l, r)));
+        rightFn(input).flatMap((r) => leftFn(input).map((l) => applyArith(node.op, l, r)));
     }
 
     case "compare": {
       const leftFn = compile(node.left, env);
       const rightFn = compile(node.right, env);
       return (input) =>
-        leftFn(input).flatMap((l) => rightFn(input).map((r) => applyCompare(node.op, l, r)));
+        rightFn(input).flatMap((r) => leftFn(input).map((l) => applyCompare(node.op, l, r)));
     }
 
     case "logic": {
@@ -345,12 +385,12 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
       const rightFn = compile(node.right, env);
       return (input) => {
         if (node.op === "and") {
-          return leftFn(input).flatMap((l) =>
-            rightFn(input).map((r) => (isTruthy(l) && isTruthy(r)) as JsonValue),
+          return rightFn(input).flatMap((r) =>
+            leftFn(input).map((l) => (isTruthy(l) && isTruthy(r)) as JsonValue),
           );
         }
-        return leftFn(input).flatMap((l) =>
-          rightFn(input).map((r) => (isTruthy(l) || isTruthy(r)) as JsonValue),
+        return rightFn(input).flatMap((r) =>
+          leftFn(input).map((l) => (isTruthy(l) || isTruthy(r)) as JsonValue),
         );
       };
     }
@@ -870,6 +910,19 @@ function updatePathInner(
     }
 
     case "func": {
+      // getpath(p) |= expr — update at the given path
+      if (node.name === "getpath" && node.args.length === 1) {
+        const pathFn = compile(node.args[0]!, env);
+        const paths = pathFn(root);
+        let result = root;
+        for (const p of paths) {
+          if (!Array.isArray(p)) throw new JqRuntimeError("Path must be an array");
+          const oldVal = getPath(result, p);
+          const newVal = updater(oldVal);
+          result = setPathChecked(result, p, newVal);
+        }
+        return result;
+      }
       // select(cond) |= expr — only update items matching condition
       if (node.name === "select" && node.args.length === 1) {
         const condFn = compile(node.args[0]!, env);
@@ -887,7 +940,8 @@ function updatePathInner(
         return root; // condition not met, don't update
       }
       // Check for user-defined function that might be a path expression
-      const userFunc = env.funcs.get(node.name);
+      const funcKey = `${node.name}/${node.args.length}`;
+      const userFunc = env.funcs.get(funcKey);
       if (userFunc) {
         // Expand the user-defined function body and use it as a path
         const funcEnv = extendEnv(userFunc.closure);
@@ -905,6 +959,19 @@ function updatePathInner(
       const output = compile(node, env)(root);
       const outputStr = JSON.stringify(output.length === 1 ? output[0] : output);
       throw new JqRuntimeError(`Invalid path expression with result ${outputStr}`);
+    }
+
+    case "as": {
+      // For path updates, evaluate the as binding, then update through the body
+      const exprFn = compile(node.expr, env);
+      const values = exprFn(root);
+      let result = root;
+      for (const val of values) {
+        const newEnv = extendEnv(env);
+        bindPattern(newEnv, node.pattern, val);
+        result = updatePathInner(result, node.body, newEnv, updater);
+      }
+      return result;
     }
 
     default:
@@ -975,7 +1042,11 @@ function bindPatternImpl(
           const keyResult = keyFn(value);
           keyStr = String(keyResult[0]);
         }
-        bindPatternImpl(env, entry.pattern, obj[keyStr] ?? null, strict);
+        const entryVal = obj[keyStr] ?? null;
+        if (entry.varName) {
+          env.vars.set(entry.varName, entryVal);
+        }
+        bindPatternImpl(env, entry.pattern, entryVal, strict);
       }
       break;
     }
@@ -1539,9 +1610,9 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
             if (m[0]!.length === 0) {
               // Empty match: emit text before this position and advance
               results.push(input.slice(lastIndex, m.index));
-              lastIndex = m.index + 1;
-              re.lastIndex = lastIndex;
-              if (lastIndex > input.length) break;
+              lastIndex = m.index;
+              re.lastIndex = m.index + 1;
+              if (re.lastIndex > input.length) break;
             } else {
               results.push(input.slice(lastIndex, m.index));
               lastIndex = m.index + m[0]!.length;
@@ -1882,7 +1953,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       return (input) => (typeof input !== "object" || input === null ? [input] : []);
 
     case "tojson":
-      return (input) => [JSON.stringify(input)];
+      return (input) => [jsonStringifyIterative(input)];
 
     case "fromjson":
       return (input) => {
@@ -1898,9 +1969,45 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
             `Invalid numeric literal at EOF at line 1, column ${input.length} (while parsing '${input}')`,
           );
         }
+        // Check nesting depth before parsing to match jq's depth limit
+        {
+          let maxDepth = 0;
+          let depth = 0;
+          for (let i = 0; i < input.length; i++) {
+            const ch = input[i];
+            if (ch === "[" || ch === "{") {
+              depth++;
+              if (depth > maxDepth) maxDepth = depth;
+            } else if (ch === "]" || ch === "}") {
+              depth--;
+            } else if (ch === '"') {
+              // Skip strings
+              i++;
+              while (i < input.length && input[i] !== '"') {
+                if (input[i] === "\\") i++;
+                i++;
+              }
+            }
+            if (maxDepth > 10000) {
+              throw new JqRuntimeError("Exceeds depth limit for parsing");
+            }
+          }
+        }
         try {
           return [JSON.parse(input) as JsonValue];
-        } catch {
+        } catch (parseErr) {
+          // Check if it's a stack overflow from deep nesting — try iterative parser
+          if (
+            parseErr instanceof RangeError ||
+            (parseErr instanceof Error && parseErr.message.includes("stack"))
+          ) {
+            try {
+              return [jsonParseIterative(input)];
+            } catch (e2) {
+              if (e2 instanceof JqRuntimeError) throw e2;
+              // Fall through to error formatting
+            }
+          }
           // Generate jq-compatible error messages
           if (input.startsWith("'") || input.includes("'")) {
             const col = input.indexOf("'") + 1;
@@ -2078,13 +2185,19 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       return (input) => {
         const walkInner = (v: JsonValue): JsonValue[] => {
           if (Array.isArray(v)) {
-            const walked = v.map((item) => walkInner(item)[0] ?? null);
+            const walked: JsonValue[] = [];
+            for (const item of v) {
+              const results = walkInner(item);
+              if (results.length > 0) walked.push(results[0]!);
+            }
             return fn(walked);
           }
           if (v !== null && typeof v === "object") {
             const obj: Record<string, JsonValue> = {};
             for (const [k, val] of Object.entries(v)) {
-              obj[k] = walkInner(val)[0] ?? null;
+              const results = walkInner(val);
+              if (results.length > 0) obj[k] = results[0]!;
+              // if results empty, omit the key
             }
             return fn(obj);
           }
@@ -2899,6 +3012,24 @@ function generateValues(
 ): void {
   switch (node.kind) {
     case "pipe": {
+      // If the right side uses original input (postfix bracket syntax like .foo[.baz]),
+      // fall through to compile-based evaluation which handles useOriginalInput
+      const rightNeedsOrigInput =
+        (node.right.kind === "index" &&
+          (node.right as import("./ast.js").IndexNode).useOriginalInput) ||
+        (node.right.kind === "slice" &&
+          (node.right as import("./ast.js").SliceNode).useOriginalInput);
+      if (rightNeedsOrigInput) {
+        try {
+          for (const val of compile(node, env)(input)) {
+            onValue(val);
+          }
+        } catch (e) {
+          if (e instanceof BreakSignal) throw e;
+          onError(e);
+        }
+        break;
+      }
       generateValues(
         node.left,
         env,
@@ -2955,9 +3086,21 @@ function jqTruncate(v: JsonValue): string {
     }
     return quoted;
   }
-  const s = JSON.stringify(v);
-  if (s.length > 26) {
-    return s.slice(0, 23) + "...";
+  let s: string;
+  if (typeof v === "number" && isFinite(v)) {
+    // Format numbers without scientific notation (like jq does)
+    const str = JSON.stringify(v);
+    if (str.includes("e") || str.includes("E")) {
+      // Convert scientific notation to fixed-point
+      s = numberToFixed(v);
+    } else {
+      s = str;
+    }
+  } else {
+    s = JSON.stringify(v);
+  }
+  if (s.length > 29) {
+    return s.slice(0, 26) + "...";
   }
   return s;
 }
@@ -2987,6 +3130,13 @@ function utf8ByteLength(s: string): number {
     } else bytes += 3;
   }
   return bytes;
+}
+
+function numberToFixed(n: number): string {
+  if (!isFinite(n)) return String(n);
+  if (n === 0) return "0";
+  // Convert to non-scientific notation string
+  return n.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 20 });
 }
 
 function isTruthy(v: JsonValue | undefined): boolean {
@@ -3120,9 +3270,18 @@ function normalizeIndex(i: number, len: number, isFrom?: boolean): number {
 function flattenArray(arr: JsonValue[], depth: number): JsonValue[] {
   if (depth <= 0) return arr;
   const result: JsonValue[] = [];
-  for (const item of arr) {
-    if (Array.isArray(item)) {
-      result.push(...flattenArray(item, depth - 1));
+  // Use iterative approach with explicit stack to handle deeply nested arrays
+  const stack: { arr: JsonValue[]; idx: number; depth: number }[] = [{ arr, idx: 0, depth }];
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1]!;
+    if (frame.idx >= frame.arr.length) {
+      stack.pop();
+      continue;
+    }
+    const item = frame.arr[frame.idx]!;
+    frame.idx++;
+    if (Array.isArray(item) && frame.depth > 0) {
+      stack.push({ arr: item, idx: 0, depth: frame.depth - 1 });
     } else {
       result.push(item);
     }
@@ -4428,4 +4587,306 @@ function jsonContains(a: JsonValue, b: JsonValue): boolean {
     );
   }
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Iterative JSON stringifier that handles very deep nesting without stack overflow.
+ * Falls back to JSON.stringify for shallow structures.
+ */
+function jsonStringifyIterative(value: JsonValue): string {
+  // Try JSON.stringify first (faster for typical cases)
+  try {
+    return JSON.stringify(value);
+  } catch {
+    // Fall through to iterative implementation for deep structures
+  }
+
+  const parts: string[] = [];
+  // Stack of frames: each frame is [value, state, keys, index]
+  const stack: {
+    val: JsonValue;
+    isArray: boolean;
+    keys: string[];
+    index: number;
+    started: boolean;
+  }[] = [];
+
+  const writeValue = (v: JsonValue): boolean => {
+    if (v === null || typeof v === "boolean" || typeof v === "number") {
+      parts.push(JSON.stringify(v));
+      return false; // no push needed
+    }
+    if (typeof v === "string") {
+      parts.push(JSON.stringify(v));
+      return false;
+    }
+    if (Array.isArray(v)) {
+      if (v.length === 0) {
+        parts.push("[]");
+        return false;
+      }
+      if (stack.length >= 10000) {
+        parts.push('"<skipped: too deep>"');
+        return false;
+      }
+      parts.push("[");
+      stack.push({ val: v, isArray: true, keys: [], index: 0, started: false });
+      return true;
+    }
+    // object
+    const keys = Object.keys(v as Record<string, JsonValue>);
+    if (keys.length === 0) {
+      parts.push("{}");
+      return false;
+    }
+    parts.push("{");
+    stack.push({
+      val: v,
+      isArray: false,
+      keys,
+      index: 0,
+      started: false,
+    });
+    return true;
+  };
+
+  writeValue(value);
+
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1]!;
+    if (frame.isArray) {
+      const arr = frame.val as JsonValue[];
+      if (frame.index >= arr.length) {
+        parts.push("]");
+        stack.pop();
+        continue;
+      }
+      if (frame.started) parts.push(",");
+      frame.started = true;
+      const child = arr[frame.index]!;
+      frame.index++;
+      writeValue(child);
+    } else {
+      const obj = frame.val as Record<string, JsonValue>;
+      if (frame.index >= frame.keys.length) {
+        parts.push("}");
+        stack.pop();
+        continue;
+      }
+      if (frame.started) parts.push(",");
+      frame.started = true;
+      const key = frame.keys[frame.index]!;
+      parts.push(JSON.stringify(key) + ":");
+      const child = obj[key]!;
+      frame.index++;
+      writeValue(child);
+    }
+  }
+
+  return parts.join("");
+}
+
+/**
+ * Iterative JSON parser for deeply nested structures that would overflow JSON.parse.
+ */
+function jsonParseIterative(input: string): JsonValue {
+  let pos = 0;
+
+  const skipWs = () => {
+    while (pos < input.length && " \t\n\r".includes(input[pos]!)) pos++;
+  };
+
+  const parseValue = (): JsonValue => {
+    skipWs();
+    if (pos >= input.length) throw new JqRuntimeError("Unexpected end of JSON input");
+    const ch = input[pos]!;
+
+    if (ch === "[") {
+      // Use iterative approach for arrays to avoid stack overflow
+      return parseArrayIterative();
+    }
+    if (ch === "{") {
+      return parseObjectIterative();
+    }
+    if (ch === '"') return parseString();
+    if (ch === "t") {
+      if (input.slice(pos, pos + 4) === "true") {
+        pos += 4;
+        return true;
+      }
+      throw new JqRuntimeError("Invalid JSON");
+    }
+    if (ch === "f") {
+      if (input.slice(pos, pos + 5) === "false") {
+        pos += 5;
+        return false;
+      }
+      throw new JqRuntimeError("Invalid JSON");
+    }
+    if (ch === "n") {
+      if (input.slice(pos, pos + 4) === "null") {
+        pos += 4;
+        return null;
+      }
+      throw new JqRuntimeError("Invalid JSON");
+    }
+    if (ch === "-" || (ch >= "0" && ch <= "9")) return parseNumber();
+    throw new JqRuntimeError("Invalid JSON");
+  };
+
+  const parseString = (): string => {
+    pos++; // skip opening quote
+    let result = "";
+    while (pos < input.length) {
+      const ch = input[pos]!;
+      if (ch === '"') {
+        pos++;
+        return result;
+      }
+      if (ch === "\\") {
+        pos++;
+        const esc = input[pos]!;
+        pos++;
+        switch (esc) {
+          case '"':
+            result += '"';
+            break;
+          case "\\":
+            result += "\\";
+            break;
+          case "/":
+            result += "/";
+            break;
+          case "b":
+            result += "\b";
+            break;
+          case "f":
+            result += "\f";
+            break;
+          case "n":
+            result += "\n";
+            break;
+          case "r":
+            result += "\r";
+            break;
+          case "t":
+            result += "\t";
+            break;
+          case "u": {
+            const hex = input.slice(pos, pos + 4);
+            pos += 4;
+            result += String.fromCharCode(parseInt(hex, 16));
+            break;
+          }
+          default:
+            result += esc;
+        }
+      } else {
+        result += ch;
+        pos++;
+      }
+    }
+    throw new JqRuntimeError("Unterminated string");
+  };
+
+  const parseNumber = (): number => {
+    const start = pos;
+    if (input[pos] === "-") pos++;
+    while (pos < input.length && input[pos]! >= "0" && input[pos]! <= "9") pos++;
+    if (pos < input.length && input[pos] === ".") {
+      pos++;
+      while (pos < input.length && input[pos]! >= "0" && input[pos]! <= "9") pos++;
+    }
+    if (pos < input.length && (input[pos] === "e" || input[pos] === "E")) {
+      pos++;
+      if (pos < input.length && (input[pos] === "+" || input[pos] === "-")) pos++;
+      while (pos < input.length && input[pos]! >= "0" && input[pos]! <= "9") pos++;
+    }
+    return Number(input.slice(start, pos));
+  };
+
+  const parseArrayIterative = (): JsonValue => {
+    // Use an explicit stack to handle deep nesting
+    type Frame = { arr: JsonValue[]; needsComma: boolean };
+    const stack: Frame[] = [];
+    pos++; // skip [
+    skipWs();
+    if (pos < input.length && input[pos] === "]") {
+      pos++;
+      return [];
+    }
+    stack.push({ arr: [], needsComma: false });
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1]!;
+      skipWs();
+      if (pos < input.length && input[pos] === "]") {
+        pos++;
+        const result = frame.arr;
+        stack.pop();
+        if (stack.length === 0) return result;
+        stack[stack.length - 1]!.arr.push(result);
+        stack[stack.length - 1]!.needsComma = true;
+        continue;
+      }
+      if (frame.needsComma) {
+        if (input[pos] !== ",") throw new JqRuntimeError("Expected comma in array");
+        pos++;
+        skipWs();
+      }
+      // Check if next element is an array (handle iteratively)
+      if (input[pos] === "[") {
+        if (stack.length >= 10000) {
+          throw new JqRuntimeError("Exceeds depth limit for parsing");
+        }
+        pos++;
+        skipWs();
+        if (pos < input.length && input[pos] === "]") {
+          pos++;
+          frame.arr.push([]);
+          frame.needsComma = true;
+        } else {
+          stack.push({ arr: [], needsComma: false });
+        }
+      } else {
+        frame.arr.push(parseValue());
+        frame.needsComma = true;
+      }
+    }
+    throw new JqRuntimeError("Invalid JSON array");
+  };
+
+  const parseObjectIterative = (): JsonValue => {
+    pos++; // skip {
+    skipWs();
+    if (pos < input.length && input[pos] === "}") {
+      pos++;
+      return {};
+    }
+    const obj: Record<string, JsonValue> = {};
+    let needsComma = false;
+    while (pos < input.length) {
+      if (needsComma) {
+        skipWs();
+        if (input[pos] === "}") {
+          pos++;
+          return obj;
+        }
+        if (input[pos] !== ",") throw new JqRuntimeError("Expected comma in object");
+        pos++;
+        skipWs();
+      }
+      if (input[pos] !== '"') throw new JqRuntimeError("Expected string key");
+      const key = parseString();
+      skipWs();
+      if (input[pos] !== ":") throw new JqRuntimeError("Expected colon");
+      pos++;
+      obj[key] = parseValue();
+      needsComma = true;
+    }
+    throw new JqRuntimeError("Unterminated object");
+  };
+
+  const result = parseValue();
+  return result;
 }
