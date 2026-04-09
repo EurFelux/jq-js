@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: access', () => {
+describe("jq official: access", () => {
   // line 148: .foo
   test(`.foo | {"foo": 42, "bar": 43}`, () => {
     const input = JSON.parse(`{"foo": 42, "bar": 43}`);
@@ -94,7 +94,11 @@ describe('jq official: access', () => {
   test(`map(try .a[] catch ., try .a.[] catch ., .a[]?, .a.[]?) | [{"a": [1,2]}, {"a": 123}]`, () => {
     const input = JSON.parse(`[{"a": [1,2]}, {"a": 123}]`);
     const result = jq(`map(try .a[] catch ., try .a.[] catch ., .a[]?, .a.[]?)`, input);
-    expect(result).toEqual([JSON.parse(`[1,2,1,2,1,2,1,2,"Cannot iterate over number (123)","Cannot iterate over number (123)"]`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `[1,2,1,2,1,2,1,2,"Cannot iterate over number (123)","Cannot iterate over number (123)"]`,
+      ),
+    ]);
   });
 
   // line 213: try (.foo[-1] = 0) catch .
@@ -131,5 +135,4 @@ describe('jq official: access', () => {
     const result = jq(`try (.[999999999] = 0) catch .`, input);
     expect(result).toEqual([JSON.parse(`"Array index too large"`)]);
   });
-
 });

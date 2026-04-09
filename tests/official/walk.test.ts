@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: walk', () => {
+describe("jq official: walk", () => {
   // line 2407: walk(.)
   test(`walk(.) | {"x":0}`, () => {
     const input = JSON.parse(`{"x":0}`);
@@ -19,5 +19,4 @@ describe('jq official: walk', () => {
     const result = jq(`walk(1)`, input);
     expect(result).toEqual([JSON.parse(`1`)]);
   });
-
 });

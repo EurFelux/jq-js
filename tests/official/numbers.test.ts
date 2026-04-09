@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: numbers', () => {
+describe("jq official: numbers", () => {
   // line 490: reduce range(65540;65536;-1) as $i ([]; .[$i] = $i)|.[65536:]
   test(`reduce range(65540;65536;-1) as \$i ([]; .[\$i] = \$i)|.[65536:] | null`, () => {
     const input = JSON.parse(`null`);
@@ -37,14 +37,20 @@ describe('jq official: numbers', () => {
   // line 1886: last(range(365 * 67)|("1970-03-01T01:02:03Z"|strptime("%Y-%m-%dT%H:%M:%SZ")|mktime) + (86400 * .)|strftime("%Y-%m-%dT%H:%M:%SZ")|strptime("%Y-%m-%dT%H:%M:%SZ"))
   test(`last(range(365 * 67)|("1970-03-01T01:02:03Z"|strptime("%Y-%m-%dT%H:%M:%SZ")|mktime) + (86400 * .)|strftime("%Y-%m-%dT%H:%M:%SZ")|strptime("%Y-%m-%dT%H:%M:%SZ")) | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`last(range(365 * 67)|("1970-03-01T01:02:03Z"|strptime("%Y-%m-%dT%H:%M:%SZ")|mktime) + (86400 * .)|strftime("%Y-%m-%dT%H:%M:%SZ")|strptime("%Y-%m-%dT%H:%M:%SZ"))`, input);
+    const result = jq(
+      `last(range(365 * 67)|("1970-03-01T01:02:03Z"|strptime("%Y-%m-%dT%H:%M:%SZ")|mktime) + (86400 * .)|strftime("%Y-%m-%dT%H:%M:%SZ")|strptime("%Y-%m-%dT%H:%M:%SZ"))`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`[2037,1,11,1,2,3,3,41]`)]);
   });
 
   // line 1891: import "a" as foo; import "b" as bar; def fooa: foo::a; [fooa, bar::a, bar::b, foo::a]
   test(`import "a" as foo; import "b" as bar; def fooa: foo::a; [fooa, bar::a, bar::b, foo::a] | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`import "a" as foo; import "b" as bar; def fooa: foo::a; [fooa, bar::a, bar::b, foo::a]`, input);
+    const result = jq(
+      `import "a" as foo; import "b" as bar; def fooa: foo::a; [fooa, bar::a, bar::b, foo::a]`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`["a","b","c","a"]`)]);
   });
 
@@ -65,14 +71,20 @@ describe('jq official: numbers', () => {
   // line 1903: import "data" as $e; import "data" as $d; [$d[].this,$e[].that,$d::d[].this,$e::e[].that]|join(";")
   test(`import "data" as \$e; import "data" as \$d; [\$d[].this,\$e[].that,\$d::d[].this,\$e::e[].that]|join(";") | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`import "data" as \$e; import "data" as \$d; [\$d[].this,\$e[].that,\$d::d[].this,\$e::e[].that]|join(";")`, input);
+    const result = jq(
+      `import "data" as \$e; import "data" as \$d; [\$d[].this,\$e[].that,\$d::d[].this,\$e::e[].that]|join(";")`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`"is a test;is too;is a test;is too"`)]);
   });
 
   // line 2058: [range(-52;52;1)] as $powers | [$powers[]|pow(2;.)|log2|round] == $powers
   test(`[range(-52;52;1)] as \$powers | [\$powers[]|pow(2;.)|log2|round] == \$powers | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`[range(-52;52;1)] as \$powers | [\$powers[]|pow(2;.)|log2|round] == \$powers`, input);
+    const result = jq(
+      `[range(-52;52;1)] as \$powers | [\$powers[]|pow(2;.)|log2|round] == \$powers`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`true`)]);
   });
 
@@ -80,28 +92,50 @@ describe('jq official: numbers', () => {
   test(`INDEX(range(5)|[., "foo\\(.)"]; .[0]) | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`INDEX(range(5)|[., "foo\\(.)"]; .[0])`, input);
-    expect(result).toEqual([JSON.parse(`{"0":[0,"foo0"],"1":[1,"foo1"],"2":[2,"foo2"],"3":[3,"foo3"],"4":[4,"foo4"]}`)]);
+    expect(result).toEqual([
+      JSON.parse(`{"0":[0,"foo0"],"1":[1,"foo1"],"2":[2,"foo2"],"3":[3,"foo3"],"4":[4,"foo4"]}`),
+    ]);
   });
 
   // line 2084: JOIN({"0":[0,"abc"],"1":[1,"bcd"],"2":[2,"def"],"3":[3,"efg"],"4":[4,"fgh"]}; .[0]|tostring)
   test(`JOIN({"0":[0,"abc"],"1":[1,"bcd"],"2":[2,"def"],"3":[3,"efg"],"4":[4,"fgh"]}; .[0]|tostring) | [[5,"foo"],[3,"bar"],[1,"foobar"]]`, () => {
     const input = JSON.parse(`[[5,"foo"],[3,"bar"],[1,"foobar"]]`);
-    const result = jq(`JOIN({"0":[0,"abc"],"1":[1,"bcd"],"2":[2,"def"],"3":[3,"efg"],"4":[4,"fgh"]}; .[0]|tostring)`, input);
-    expect(result).toEqual([JSON.parse(`[[[5,"foo"],null],[[3,"bar"],[3,"efg"]],[[1,"foobar"],[1,"bcd"]]]`)]);
+    const result = jq(
+      `JOIN({"0":[0,"abc"],"1":[1,"bcd"],"2":[2,"def"],"3":[3,"efg"],"4":[4,"fgh"]}; .[0]|tostring)`,
+      input,
+    );
+    expect(result).toEqual([
+      JSON.parse(`[[[5,"foo"],null],[[3,"bar"],[3,"efg"]],[[1,"foobar"],[1,"bcd"]]]`),
+    ]);
   });
 
   // line 2088: range(5;10)|IN(range(10))
   test(`range(5;10)|IN(range(10)) | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`range(5;10)|IN(range(10))`, input);
-    expect(result).toEqual([JSON.parse(`true`), JSON.parse(`true`), JSON.parse(`true`), JSON.parse(`true`), JSON.parse(`true`)]);
+    expect(result).toEqual([
+      JSON.parse(`true`),
+      JSON.parse(`true`),
+      JSON.parse(`true`),
+      JSON.parse(`true`),
+      JSON.parse(`true`),
+    ]);
   });
 
   // line 2096: range(5;13)|IN(range(0;10;3))
   test(`range(5;13)|IN(range(0;10;3)) | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`range(5;13)|IN(range(0;10;3))`, input);
-    expect(result).toEqual([JSON.parse(`false`), JSON.parse(`true`), JSON.parse(`false`), JSON.parse(`false`), JSON.parse(`true`), JSON.parse(`false`), JSON.parse(`false`), JSON.parse(`false`)]);
+    expect(result).toEqual([
+      JSON.parse(`false`),
+      JSON.parse(`true`),
+      JSON.parse(`false`),
+      JSON.parse(`false`),
+      JSON.parse(`true`),
+      JSON.parse(`false`),
+      JSON.parse(`false`),
+      JSON.parse(`false`),
+    ]);
   });
 
   // line 2107: range(10;12)|IN(range(10))
@@ -135,21 +169,30 @@ describe('jq official: numbers', () => {
   // line 2187: .[0] | tostring | . == if have_decnum then "13911860366432393" else "13911860366432392" end
   test(`.[0] | tostring | . == if have_decnum then "13911860366432393" else "13911860366432392" end | [13911860366432393]`, () => {
     const input = JSON.parse(`[13911860366432393]`);
-    const result = jq(`.[0] | tostring | . == if have_decnum then "13911860366432393" else "13911860366432392" end`, input);
+    const result = jq(
+      `.[0] | tostring | . == if have_decnum then "13911860366432393" else "13911860366432392" end`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`true`)]);
   });
 
   // line 2191: .x | tojson | . == if have_decnum then "13911860366432393" else "13911860366432392" end
   test(`.x | tojson | . == if have_decnum then "13911860366432393" else "13911860366432392" end | {"x":13911860366432393}`, () => {
     const input = JSON.parse(`{"x":13911860366432393}`);
-    const result = jq(`.x | tojson | . == if have_decnum then "13911860366432393" else "13911860366432392" end`, input);
+    const result = jq(
+      `.x | tojson | . == if have_decnum then "13911860366432393" else "13911860366432392" end`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`true`)]);
   });
 
   // line 2195: (13911860366432393 == 13911860366432392) | . == if have_decnum then false else true end
   test(`(13911860366432393 == 13911860366432392) | . == if have_decnum then false else true end | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`(13911860366432393 == 13911860366432392) | . == if have_decnum then false else true end`, input);
+    const result = jq(
+      `(13911860366432393 == 13911860366432392) | . == if have_decnum then false else true end`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`true`)]);
   });
 
@@ -177,21 +220,30 @@ describe('jq official: numbers', () => {
   // line 2215: -. | tojson == if have_decnum then "-13911860366432393" else "-13911860366432392" end
   test(`-. | tojson == if have_decnum then "-13911860366432393" else "-13911860366432392" end | 13911860366432393`, () => {
     const input = JSON.parse(`13911860366432393`);
-    const result = jq(`-. | tojson == if have_decnum then "-13911860366432393" else "-13911860366432392" end`, input);
+    const result = jq(
+      `-. | tojson == if have_decnum then "-13911860366432393" else "-13911860366432392" end`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`true`)]);
   });
 
   // line 2219: -. | tojson == if have_decnum then "0.12345678901234567890123456789" else "0.12345678901234568" end
   test(`-. | tojson == if have_decnum then "0.12345678901234567890123456789" else "0.12345678901234568" end | -0.12345678901234567890123456789`, () => {
     const input = JSON.parse(`-0.12345678901234567890123456789`);
-    const result = jq(`-. | tojson == if have_decnum then "0.12345678901234567890123456789" else "0.12345678901234568" end`, input);
+    const result = jq(
+      `-. | tojson == if have_decnum then "0.12345678901234567890123456789" else "0.12345678901234568" end`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`true`)]);
   });
 
   // line 2223: [1E+1000,-1E+1000 | tojson] == if have_decnum then ["1E+1000","-1E+1000"] else ["1.7976931348623157e+308","-1.7976931348623157e+308"] end
   test(`[1E+1000,-1E+1000 | tojson] == if have_decnum then ["1E+1000","-1E+1000"] else ["1.7976931348623157e+308","-1.7976931348623157e+308"] end | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`[1E+1000,-1E+1000 | tojson] == if have_decnum then ["1E+1000","-1E+1000"] else ["1.7976931348623157e+308","-1.7976931348623157e+308"] end`, input);
+    const result = jq(
+      `[1E+1000,-1E+1000 | tojson] == if have_decnum then ["1E+1000","-1E+1000"] else ["1.7976931348623157e+308","-1.7976931348623157e+308"] end`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`true`)]);
   });
 
@@ -204,9 +256,17 @@ describe('jq official: numbers', () => {
 
   // line 2232: .[] as $n | $n+0 | [., tostring, . == $n]
   test(`.[] as \$n | \$n+0 | [., tostring, . == \$n] | [-9007199254740993, -9007199254740992, 9007199254740992, 9007199254740993, 13911860366432393]`, () => {
-    const input = JSON.parse(`[-9007199254740993, -9007199254740992, 9007199254740992, 9007199254740993, 13911860366432393]`);
+    const input = JSON.parse(
+      `[-9007199254740993, -9007199254740992, 9007199254740992, 9007199254740993, 13911860366432393]`,
+    );
     const result = jq(`.[] as \$n | \$n+0 | [., tostring, . == \$n]`, input);
-    expect(result).toEqual([JSON.parse(`[-9007199254740992,"-9007199254740992",true]`), JSON.parse(`[-9007199254740992,"-9007199254740992",true]`), JSON.parse(`[9007199254740992,"9007199254740992",true]`), JSON.parse(`[9007199254740992,"9007199254740992",true]`), JSON.parse(`[13911860366432392,"13911860366432392",true]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[-9007199254740992,"-9007199254740992",true]`),
+      JSON.parse(`[-9007199254740992,"-9007199254740992",true]`),
+      JSON.parse(`[9007199254740992,"9007199254740992",true]`),
+      JSON.parse(`[9007199254740992,"9007199254740992",true]`),
+      JSON.parse(`[13911860366432392,"13911860366432392",true]`),
+    ]);
   });
 
   // line 2241: abs
@@ -247,14 +307,20 @@ describe('jq official: numbers', () => {
   // line 2262: [1E+1000,-1E+1000 | abs | tojson] | unique == if have_decnum then ["1E+1000"] else ["1.7976931348623157e+308"] end
   test(`[1E+1000,-1E+1000 | abs | tojson] | unique == if have_decnum then ["1E+1000"] else ["1.7976931348623157e+308"] end | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`[1E+1000,-1E+1000 | abs | tojson] | unique == if have_decnum then ["1E+1000"] else ["1.7976931348623157e+308"] end`, input);
+    const result = jq(
+      `[1E+1000,-1E+1000 | abs | tojson] | unique == if have_decnum then ["1E+1000"] else ["1.7976931348623157e+308"] end`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`true`)]);
   });
 
   // line 2266: [1E+1000,-1E+1000 | length | tojson] | unique == if have_decnum then ["1E+1000"] else ["1.7976931348623157e+308"] end
   test(`[1E+1000,-1E+1000 | length | tojson] | unique == if have_decnum then ["1E+1000"] else ["1.7976931348623157e+308"] end | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`[1E+1000,-1E+1000 | length | tojson] | unique == if have_decnum then ["1E+1000"] else ["1.7976931348623157e+308"] end`, input);
+    const result = jq(
+      `[1E+1000,-1E+1000 | length | tojson] | unique == if have_decnum then ["1E+1000"] else ["1.7976931348623157e+308"] end`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`true`)]);
   });
 
@@ -274,9 +340,21 @@ describe('jq official: numbers', () => {
 
   // line 2315: .[] | try (fromjson | isnan) catch .
   test(`.[] | try (fromjson | isnan) catch . | ["NaN","-NaN","NaN1","NaN10","NaN100","NaN1000","NaN10000","NaN100000"]`, () => {
-    const input = JSON.parse(`["NaN","-NaN","NaN1","NaN10","NaN100","NaN1000","NaN10000","NaN100000"]`);
+    const input = JSON.parse(
+      `["NaN","-NaN","NaN1","NaN10","NaN100","NaN1000","NaN10000","NaN100000"]`,
+    );
     const result = jq(`.[] | try (fromjson | isnan) catch .`, input);
-    expect(result).toEqual([JSON.parse(`true`), JSON.parse(`true`), JSON.parse(`"Invalid numeric literal at EOF at line 1, column 4 (while parsing 'NaN1')"`), JSON.parse(`"Invalid numeric literal at EOF at line 1, column 5 (while parsing 'NaN10')"`), JSON.parse(`"Invalid numeric literal at EOF at line 1, column 6 (while parsing 'NaN100')"`), JSON.parse(`"Invalid numeric literal at EOF at line 1, column 7 (while parsing 'NaN1000')"`), JSON.parse(`"Invalid numeric literal at EOF at line 1, column 8 (while parsing 'NaN10000')"`), JSON.parse(`"Invalid numeric literal at EOF at line 1, column 9 (while parsing 'NaN100000')"`)]);
+    expect(result).toEqual([
+      JSON.parse(`true`),
+      JSON.parse(`true`),
+      JSON.parse(`"Invalid numeric literal at EOF at line 1, column 4 (while parsing 'NaN1')"`),
+      JSON.parse(`"Invalid numeric literal at EOF at line 1, column 5 (while parsing 'NaN10')"`),
+      JSON.parse(`"Invalid numeric literal at EOF at line 1, column 6 (while parsing 'NaN100')"`),
+      JSON.parse(`"Invalid numeric literal at EOF at line 1, column 7 (while parsing 'NaN1000')"`),
+      JSON.parse(`"Invalid numeric literal at EOF at line 1, column 8 (while parsing 'NaN10000')"`),
+      JSON.parse(
+        `"Invalid numeric literal at EOF at line 1, column 9 (while parsing 'NaN100000')"`,
+      ),
+    ]);
   });
-
 });

@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: errors', () => {
+describe("jq official: errors", () => {
   // line 205: try ["OK", (.[] | error)] catch ["KO", .]
   test(`try ["OK", (.[] | error)] catch ["KO", .] | {"a":["b"],"c":["d"]}`, () => {
     const input = JSON.parse(`{"a":["b"],"c":["d"]}`);
@@ -16,7 +16,10 @@ describe('jq official: errors', () => {
   // line 1448: [.[]|try if . == 0 then error("foo") elif . == 1 then .a elif . == 2 then empty else . end catch .]
   test(`[.[]|try if . == 0 then error("foo") elif . == 1 then .a elif . == 2 then empty else . end catch .] | [0,1,2,3]`, () => {
     const input = JSON.parse(`[0,1,2,3]`);
-    const result = jq(`[.[]|try if . == 0 then error("foo") elif . == 1 then .a elif . == 2 then empty else . end catch .]`, input);
+    const result = jq(
+      `[.[]|try if . == 0 then error("foo") elif . == 1 then .a elif . == 2 then empty else . end catch .]`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`["foo","Cannot index number with string (\\"a\\")",3]`)]);
   });
 
@@ -107,28 +110,40 @@ describe('jq official: errors', () => {
   // line 2337: "foo" | try ((try . catch "caught too much") | error) catch "caught just right"
   test(`"foo" | try ((try . catch "caught too much") | error) catch "caught just right" | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`"foo" | try ((try . catch "caught too much") | error) catch "caught just right"`, input);
+    const result = jq(
+      `"foo" | try ((try . catch "caught too much") | error) catch "caught just right"`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`"caught just right"`)]);
   });
 
   // line 2341: .[]|(try (if .=="hi" then . else error end) catch empty) | "\(.) there!"
   test(`.[]|(try (if .=="hi" then . else error end) catch empty) | "\\(.) there!" | ["hi","ho"]`, () => {
     const input = JSON.parse(`["hi","ho"]`);
-    const result = jq(`.[]|(try (if .=="hi" then . else error end) catch empty) | "\\(.) there!"`, input);
+    const result = jq(
+      `.[]|(try (if .=="hi" then . else error end) catch empty) | "\\(.) there!"`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`"hi there!"`)]);
   });
 
   // line 2345: try (["hi","ho"]|.[]|(try . catch (if .=="ho" then "BROKEN"|error else empty end)) | if .=="ho" then error else "\(.) there!" end) catch "caught outside \(.)"
   test(`try (["hi","ho"]|.[]|(try . catch (if .=="ho" then "BROKEN"|error else empty end)) | if .=="ho" then error else "\\(.) there!" end) catch "caught outside \\(.)" | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`try (["hi","ho"]|.[]|(try . catch (if .=="ho" then "BROKEN"|error else empty end)) | if .=="ho" then error else "\\(.) there!" end) catch "caught outside \\(.)"`, input);
+    const result = jq(
+      `try (["hi","ho"]|.[]|(try . catch (if .=="ho" then "BROKEN"|error else empty end)) | if .=="ho" then error else "\\(.) there!" end) catch "caught outside \\(.)"`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`"hi there!"`), JSON.parse(`"caught outside ho"`)]);
   });
 
   // line 2350: .[]|(try . catch (if .=="ho" then "BROKEN"|error else empty end)) | if .=="ho" then error else "\(.) there!" end
   test(`.[]|(try . catch (if .=="ho" then "BROKEN"|error else empty end)) | if .=="ho" then error else "\\(.) there!" end | ["hi","ho"]`, () => {
     const input = JSON.parse(`["hi","ho"]`);
-    const result = jq(`.[]|(try . catch (if .=="ho" then "BROKEN"|error else empty end)) | if .=="ho" then error else "\\(.) there!" end`, input);
+    const result = jq(
+      `.[]|(try . catch (if .=="ho" then "BROKEN"|error else empty end)) | if .=="ho" then error else "\\(.) there!" end`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`"hi there!"`)]);
   });
 
@@ -142,7 +157,10 @@ describe('jq official: errors', () => {
   // line 2358: try ((try error catch "inner catch \(.)")|error) catch "outer catch \(.)"
   test(`try ((try error catch "inner catch \\(.)")|error) catch "outer catch \\(.)" | "foo"`, () => {
     const input = JSON.parse(`"foo"`);
-    const result = jq(`try ((try error catch "inner catch \\(.)")|error) catch "outer catch \\(.)"`, input);
+    const result = jq(
+      `try ((try error catch "inner catch \\(.)")|error) catch "outer catch \\(.)"`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`"outer catch inner catch foo"`)]);
   });
 
@@ -187,5 +205,4 @@ describe('jq official: errors', () => {
     const result = jq(`any(keys[]|tostring?;true)`, input);
     expect(result).toEqual([JSON.parse(`true`)]);
   });
-
 });

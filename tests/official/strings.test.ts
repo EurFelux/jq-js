@@ -2,15 +2,21 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: strings', () => {
+describe("jq official: strings", () => {
   // line 53: # FIXME: more tests needed for weird unicode stuff (e.g. utf16 pairs)
   test(`# FIXME: more tests needed for weird unicode stuff (e.g. utf16 pairs) | "Aa\\r\\n\\t\\b\\f\\u03bc"`, () => {
     const input = JSON.parse(`"Aa\\r\\n\\t\\b\\f\\u03bc"`);
-    const result = jq(`# FIXME: more tests needed for weird unicode stuff (e.g. utf16 pairs)`, input);
-    expect(result).toEqual([JSON.parse(`null`), JSON.parse(`"Aa\\u000d\\u000a\\u0009\\u0008\\u000c\\u03bc"`)]);
+    const result = jq(
+      `# FIXME: more tests needed for weird unicode stuff (e.g. utf16 pairs)`,
+      input,
+    );
+    expect(result).toEqual([
+      JSON.parse(`null`),
+      JSON.parse(`"Aa\\u000d\\u000a\\u0009\\u0008\\u000c\\u03bc"`),
+    ]);
   });
 
   // line 58: .
@@ -30,92 +36,166 @@ describe('jq official: strings', () => {
   // line 72: @text,@json,([1,.]|@csv,@tsv),@html,(@uri|.,@urid),@sh,(@base64|.,@base64d)
   test(`@text,@json,([1,.]|@csv,@tsv),@html,(@uri|.,@urid),@sh,(@base64|.,@base64d) | "!()<>&'\\"\\t"`, () => {
     const input = JSON.parse(`"!()<>&'\\"\\t"`);
-    const result = jq(`@text,@json,([1,.]|@csv,@tsv),@html,(@uri|.,@urid),@sh,(@base64|.,@base64d)`, input);
-    expect(result).toEqual([JSON.parse(`"!()<>&'\\"\\t"`), JSON.parse(`"\\"!()<>&'\\\\\\"\\\\t\\""`), JSON.parse(`"1,\\"!()<>&'\\"\\"\\t\\""`), JSON.parse(`"1\\t!()<>&'\\"\\\\t"`), JSON.parse(`"!()&lt;&gt;&amp;&apos;&quot;\\t"`), JSON.parse(`"%21%28%29%3C%3E%26%27%22%09"`), JSON.parse(`"!()<>&'\\"\\t"`), JSON.parse(`"'!()<>&'\\\\''\\"\\t'"`), JSON.parse(`"ISgpPD4mJyIJ"`), JSON.parse(`"!()<>&'\\"\\t"`)]);
+    const result = jq(
+      `@text,@json,([1,.]|@csv,@tsv),@html,(@uri|.,@urid),@sh,(@base64|.,@base64d)`,
+      input,
+    );
+    expect(result).toEqual([
+      JSON.parse(`"!()<>&'\\"\\t"`),
+      JSON.parse(`"\\"!()<>&'\\\\\\"\\\\t\\""`),
+      JSON.parse(`"1,\\"!()<>&'\\"\\"\\t\\""`),
+      JSON.parse(`"1\\t!()<>&'\\"\\\\t"`),
+      JSON.parse(`"!()&lt;&gt;&amp;&apos;&quot;\\t"`),
+      JSON.parse(`"%21%28%29%3C%3E%26%27%22%09"`),
+      JSON.parse(`"!()<>&'\\"\\t"`),
+      JSON.parse(`"'!()<>&'\\\\''\\"\\t'"`),
+      JSON.parse(`"ISgpPD4mJyIJ"`),
+      JSON.parse(`"!()<>&'\\"\\t"`),
+    ]);
   });
 
   // line 961: .[] | . as {a:$a} ?// {a:$a} ?// $a | $a
   test(`.[] | . as {a:\$a} ?// {a:\$a} ?// \$a | \$a | [[3],[4],[5],6]`, () => {
     const input = JSON.parse(`[[3],[4],[5],6]`);
     const result = jq(`.[] | . as {a:\$a} ?// {a:\$a} ?// \$a | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 968: .[] as {a:$a} ?// {a:$a} ?// $a | $a
   test(`.[] as {a:\$a} ?// {a:\$a} ?// \$a | \$a | [[3],[4],[5],6]`, () => {
     const input = JSON.parse(`[[3],[4],[5],6]`);
     const result = jq(`.[] as {a:\$a} ?// {a:\$a} ?// \$a | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 975: [[3],[4],[5],6][] | . as {a:$a} ?// {a:$a} ?// $a | $a
   test(`[[3],[4],[5],6][] | . as {a:\$a} ?// {a:\$a} ?// \$a | \$a | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`[[3],[4],[5],6][] | . as {a:\$a} ?// {a:\$a} ?// \$a | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 982: [[3],[4],[5],6] | .[] as {a:$a} ?// {a:$a} ?// $a | $a
   test(`[[3],[4],[5],6] | .[] as {a:\$a} ?// {a:\$a} ?// \$a | \$a | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`[[3],[4],[5],6] | .[] as {a:\$a} ?// {a:\$a} ?// \$a | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 989: .[] | . as {a:$a} ?// $a ?// {a:$a} | $a
   test(`.[] | . as {a:\$a} ?// \$a ?// {a:\$a} | \$a | [[3],[4],[5],6]`, () => {
     const input = JSON.parse(`[[3],[4],[5],6]`);
     const result = jq(`.[] | . as {a:\$a} ?// \$a ?// {a:\$a} | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 996: .[] as {a:$a} ?// $a ?// {a:$a} | $a
   test(`.[] as {a:\$a} ?// \$a ?// {a:\$a} | \$a | [[3],[4],[5],6]`, () => {
     const input = JSON.parse(`[[3],[4],[5],6]`);
     const result = jq(`.[] as {a:\$a} ?// \$a ?// {a:\$a} | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 1003: [[3],[4],[5],6][] | . as {a:$a} ?// $a ?// {a:$a} | $a
   test(`[[3],[4],[5],6][] | . as {a:\$a} ?// \$a ?// {a:\$a} | \$a | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`[[3],[4],[5],6][] | . as {a:\$a} ?// \$a ?// {a:\$a} | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 1010: [[3],[4],[5],6] | .[] as {a:$a} ?// $a ?// {a:$a} | $a
   test(`[[3],[4],[5],6] | .[] as {a:\$a} ?// \$a ?// {a:\$a} | \$a | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`[[3],[4],[5],6] | .[] as {a:\$a} ?// \$a ?// {a:\$a} | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 1017: .[] | . as $a ?// {a:$a} ?// {a:$a} | $a
   test(`.[] | . as \$a ?// {a:\$a} ?// {a:\$a} | \$a | [[3],[4],[5],6]`, () => {
     const input = JSON.parse(`[[3],[4],[5],6]`);
     const result = jq(`.[] | . as \$a ?// {a:\$a} ?// {a:\$a} | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 1024: .[] as $a ?// {a:$a} ?// {a:$a} | $a
   test(`.[] as \$a ?// {a:\$a} ?// {a:\$a} | \$a | [[3],[4],[5],6]`, () => {
     const input = JSON.parse(`[[3],[4],[5],6]`);
     const result = jq(`.[] as \$a ?// {a:\$a} ?// {a:\$a} | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 1031: [[3],[4],[5],6][] | . as $a ?// {a:$a} ?// {a:$a} | $a
   test(`[[3],[4],[5],6][] | . as \$a ?// {a:\$a} ?// {a:\$a} | \$a | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`[[3],[4],[5],6][] | . as \$a ?// {a:\$a} ?// {a:\$a} | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 1038: [[3],[4],[5],6] | .[] as $a ?// {a:$a} ?// {a:$a} | $a
   test(`[[3],[4],[5],6] | .[] as \$a ?// {a:\$a} ?// {a:\$a} | \$a | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`[[3],[4],[5],6] | .[] as \$a ?// {a:\$a} ?// {a:\$a} | \$a`, input);
-    expect(result).toEqual([JSON.parse(`[3]`), JSON.parse(`[4]`), JSON.parse(`[5]`), JSON.parse(`6`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3]`),
+      JSON.parse(`[4]`),
+      JSON.parse(`[5]`),
+      JSON.parse(`6`),
+    ]);
   });
 
   // line 1045: . as $dot|any($dot[];not)
@@ -309,23 +389,43 @@ describe('jq official: strings', () => {
 
   // line 1554: map(trim), map(ltrim), map(rtrim)
   test(`map(trim), map(ltrim), map(rtrim) | [" \\n\\t\\r\\f\\u000b", "","  ", "a", " a ", "abc", "  abc  ", "  abc", "abc  "]`, () => {
-    const input = JSON.parse(`[" \\n\\t\\r\\f\\u000b", "","  ", "a", " a ", "abc", "  abc  ", "  abc", "abc  "]`);
+    const input = JSON.parse(
+      `[" \\n\\t\\r\\f\\u000b", "","  ", "a", " a ", "abc", "  abc  ", "  abc", "abc  "]`,
+    );
     const result = jq(`map(trim), map(ltrim), map(rtrim)`, input);
-    expect(result).toEqual([JSON.parse(`["", "", "", "a", "a", "abc", "abc", "abc", "abc"]`), JSON.parse(`["", "", "", "a", "a ", "abc", "abc  ", "abc", "abc  "]`), JSON.parse(`["", "", "", "a", " a", "abc", "  abc", "  abc", "abc"]`)]);
+    expect(result).toEqual([
+      JSON.parse(`["", "", "", "a", "a", "abc", "abc", "abc", "abc"]`),
+      JSON.parse(`["", "", "", "a", "a ", "abc", "abc  ", "abc", "abc  "]`),
+      JSON.parse(`["", "", "", "a", " a", "abc", "  abc", "  abc", "abc"]`),
+    ]);
   });
 
   // line 1560: trim, ltrim, rtrim
   test(`trim, ltrim, rtrim | "\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000abc\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000"`, () => {
-    const input = JSON.parse(`"\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000abc\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000"`);
+    const input = JSON.parse(
+      `"\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000abc\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000"`,
+    );
     const result = jq(`trim, ltrim, rtrim`, input);
-    expect(result).toEqual([JSON.parse(`"abc"`), JSON.parse(`"abc\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000"`), JSON.parse(`"\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000abc"`)]);
+    expect(result).toEqual([
+      JSON.parse(`"abc"`),
+      JSON.parse(
+        `"abc\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000"`,
+      ),
+      JSON.parse(
+        `"\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000abc"`,
+      ),
+    ]);
   });
 
   // line 1566: try trim catch ., try ltrim catch ., try rtrim catch .
   test(`try trim catch ., try ltrim catch ., try rtrim catch . | 123`, () => {
     const input = JSON.parse(`123`);
     const result = jq(`try trim catch ., try ltrim catch ., try rtrim catch .`, input);
-    expect(result).toEqual([JSON.parse(`"trim input must be a string"`), JSON.parse(`"trim input must be a string"`), JSON.parse(`"trim input must be a string"`)]);
+    expect(result).toEqual([
+      JSON.parse(`"trim input must be a string"`),
+      JSON.parse(`"trim input must be a string"`),
+      JSON.parse(`"trim input must be a string"`),
+    ]);
   });
 
   // line 1572: indices(1)
@@ -388,14 +488,20 @@ describe('jq official: strings', () => {
   test(`[.[]|split(",")] | ["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]`, () => {
     const input = JSON.parse(`["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]`);
     const result = jq(`[.[]|split(",")]`, input);
-    expect(result).toEqual([JSON.parse(`[["a"," bc"," def"," ghij"," jklmn"," a","b"," c","d"," e","f"],["a","b","c","d"," e","f","g","h"]]`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `[["a"," bc"," def"," ghij"," jklmn"," a","b"," c","d"," e","f"],["a","b","c","d"," e","f","g","h"]]`,
+      ),
+    ]);
   });
 
   // line 1608: [.[]|split(", ")]
   test(`[.[]|split(", ")] | ["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]`, () => {
     const input = JSON.parse(`["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]`);
     const result = jq(`[.[]|split(", ")]`, input);
-    expect(result).toEqual([JSON.parse(`[["a","bc","def","ghij","jklmn","a,b","c,d","e,f"],["a,b,c,d","e,f,g,h"]]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[["a","bc","def","ghij","jklmn","a,b","c,d","e,f"],["a,b,c,d","e,f,g,h"]]`),
+    ]);
   });
 
   // line 1612: [.[] * 3]
@@ -409,7 +515,9 @@ describe('jq official: strings', () => {
   test(`[.[] * "abc"] | [-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 3.7, 10.0]`, () => {
     const input = JSON.parse(`[-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 3.7, 10.0]`);
     const result = jq(`[.[] * "abc"]`, input);
-    expect(result).toEqual([JSON.parse(`[null,null,"","","abc","abc","abcabcabc","abcabcabcabcabcabcabcabcabcabc"]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[null,null,"","","abc","abc","abcabcabc","abcabcabcabcabcabcabcabcabcabc"]`),
+    ]);
   });
 
   // line 1620: [. * (nan,-nan)]
@@ -444,26 +552,36 @@ describe('jq official: strings', () => {
   test(`[.[] / ","] | ["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]`, () => {
     const input = JSON.parse(`["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]`);
     const result = jq(`[.[] / ","]`, input);
-    expect(result).toEqual([JSON.parse(`[["a"," bc"," def"," ghij"," jklmn"," a","b"," c","d"," e","f"],["a","b","c","d"," e","f","g","h"]]`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `[["a"," bc"," def"," ghij"," jklmn"," a","b"," c","d"," e","f"],["a","b","c","d"," e","f","g","h"]]`,
+      ),
+    ]);
   });
 
   // line 1640: [.[] / ", "]
   test(`[.[] / ", "] | ["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]`, () => {
     const input = JSON.parse(`["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]`);
     const result = jq(`[.[] / ", "]`, input);
-    expect(result).toEqual([JSON.parse(`[["a","bc","def","ghij","jklmn","a,b","c,d","e,f"],["a,b,c,d","e,f,g,h"]]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[["a","bc","def","ghij","jklmn","a,b","c,d","e,f"],["a,b,c,d","e,f,g,h"]]`),
+    ]);
   });
 
   // line 1644: map(.[1] as $needle | .[0] | contains($needle))
   test(`map(.[1] as \$needle | .[0] | contains(\$needle)) | [[[],[]], [[1,2,3], [1,2]], [[1,2,3], [3,1]], [[1,2,3], [4]], [[1,2,3], [1,4]]]`, () => {
-    const input = JSON.parse(`[[[],[]], [[1,2,3], [1,2]], [[1,2,3], [3,1]], [[1,2,3], [4]], [[1,2,3], [1,4]]]`);
+    const input = JSON.parse(
+      `[[[],[]], [[1,2,3], [1,2]], [[1,2,3], [3,1]], [[1,2,3], [4]], [[1,2,3], [1,4]]]`,
+    );
     const result = jq(`map(.[1] as \$needle | .[0] | contains(\$needle))`, input);
     expect(result).toEqual([JSON.parse(`[true, true, true, false, false]`)]);
   });
 
   // line 1648: map(.[1] as $needle | .[0] | contains($needle))
   test(`map(.[1] as \$needle | .[0] | contains(\$needle)) | [[["foobar", "foobaz"], ["baz", "bar"]], [["foobar", "foobaz"], ["foo"]], [["foobar", "foobaz"], ["blap"]]]`, () => {
-    const input = JSON.parse(`[[["foobar", "foobaz"], ["baz", "bar"]], [["foobar", "foobaz"], ["foo"]], [["foobar", "foobaz"], ["blap"]]]`);
+    const input = JSON.parse(
+      `[[["foobar", "foobaz"], ["baz", "bar"]], [["foobar", "foobaz"], ["foo"]], [["foobar", "foobaz"], ["blap"]]]`,
+    );
     const result = jq(`map(.[1] as \$needle | .[0] | contains(\$needle))`, input);
     expect(result).toEqual([JSON.parse(`[true, true, false]`)]);
   });
@@ -471,36 +589,72 @@ describe('jq official: strings', () => {
   // line 1652: [({foo: 12, bar:13} | contains({foo: 12})), ({foo: 12} | contains({})), ({foo: 12, bar:13} | contains({baz:14}))]
   test(`[({foo: 12, bar:13} | contains({foo: 12})), ({foo: 12} | contains({})), ({foo: 12, bar:13} | contains({baz:14}))] | {}`, () => {
     const input = JSON.parse(`{}`);
-    const result = jq(`[({foo: 12, bar:13} | contains({foo: 12})), ({foo: 12} | contains({})), ({foo: 12, bar:13} | contains({baz:14}))]`, input);
+    const result = jq(
+      `[({foo: 12, bar:13} | contains({foo: 12})), ({foo: 12} | contains({})), ({foo: 12, bar:13} | contains({baz:14}))]`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`[true, true, false]`)]);
   });
 
   // line 1656: {foo: {baz: 12, blap: {bar: 13}}, bar: 14} | contains({bar: 14, foo: {blap: {}}})
   test(`{foo: {baz: 12, blap: {bar: 13}}, bar: 14} | contains({bar: 14, foo: {blap: {}}}) | {}`, () => {
     const input = JSON.parse(`{}`);
-    const result = jq(`{foo: {baz: 12, blap: {bar: 13}}, bar: 14} | contains({bar: 14, foo: {blap: {}}})`, input);
+    const result = jq(
+      `{foo: {baz: 12, blap: {bar: 13}}, bar: 14} | contains({bar: 14, foo: {blap: {}}})`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`true`)]);
   });
 
   // line 1660: {foo: {baz: 12, blap: {bar: 13}}, bar: 14} | contains({bar: 14, foo: {blap: {bar: 14}}})
   test(`{foo: {baz: 12, blap: {bar: 13}}, bar: 14} | contains({bar: 14, foo: {blap: {bar: 14}}}) | {}`, () => {
     const input = JSON.parse(`{}`);
-    const result = jq(`{foo: {baz: 12, blap: {bar: 13}}, bar: 14} | contains({bar: 14, foo: {blap: {bar: 14}}})`, input);
+    const result = jq(
+      `{foo: {baz: 12, blap: {bar: 13}}, bar: 14} | contains({bar: 14, foo: {blap: {bar: 14}}})`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`false`)]);
   });
 
   // line 1664: sort
   test(`sort | [42,[2,5,3,11],10,{"a":42,"b":2},{"a":42},true,2,[2,6],"hello",null,[2,5,6],{"a":[],"b":1},"abc","ab",[3,10],{},false,"abcd",null]`, () => {
-    const input = JSON.parse(`[42,[2,5,3,11],10,{"a":42,"b":2},{"a":42},true,2,[2,6],"hello",null,[2,5,6],{"a":[],"b":1},"abc","ab",[3,10],{},false,"abcd",null]`);
+    const input = JSON.parse(
+      `[42,[2,5,3,11],10,{"a":42,"b":2},{"a":42},true,2,[2,6],"hello",null,[2,5,6],{"a":[],"b":1},"abc","ab",[3,10],{},false,"abcd",null]`,
+    );
     const result = jq(`sort`, input);
-    expect(result).toEqual([JSON.parse(`[null,null,false,true,2,10,42,"ab","abc","abcd","hello",[2,5,3,11],[2,5,6],[2,6],[3,10],{},{"a":42},{"a":42,"b":2},{"a":[],"b":1}]`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `[null,null,false,true,2,10,42,"ab","abc","abcd","hello",[2,5,3,11],[2,5,6],[2,6],[3,10],{},{"a":42},{"a":42,"b":2},{"a":[],"b":1}]`,
+      ),
+    ]);
   });
 
   // line 1668: (sort_by(.b) | sort_by(.a)), sort_by(.a, .b), sort_by(.b, .c), group_by(.b), group_by(.a + .b - .c == 2)
   test(`(sort_by(.b) | sort_by(.a)), sort_by(.a, .b), sort_by(.b, .c), group_by(.b), group_by(.a + .b - .c == 2) | [{"a": 1, "b": 4, "c": 14}, {"a": 4, "b": 1, "c": 3}, {"a": 1, "b": 4, "c": 3}, {"a": 0, "b": 2, "c": 43}]`, () => {
-    const input = JSON.parse(`[{"a": 1, "b": 4, "c": 14}, {"a": 4, "b": 1, "c": 3}, {"a": 1, "b": 4, "c": 3}, {"a": 0, "b": 2, "c": 43}]`);
-    const result = jq(`(sort_by(.b) | sort_by(.a)), sort_by(.a, .b), sort_by(.b, .c), group_by(.b), group_by(.a + .b - .c == 2)`, input);
-    expect(result).toEqual([JSON.parse(`[{"a": 0, "b": 2, "c": 43}, {"a": 1, "b": 4, "c": 14}, {"a": 1, "b": 4, "c": 3}, {"a": 4, "b": 1, "c": 3}]`), JSON.parse(`[{"a": 0, "b": 2, "c": 43}, {"a": 1, "b": 4, "c": 14}, {"a": 1, "b": 4, "c": 3}, {"a": 4, "b": 1, "c": 3}]`), JSON.parse(`[{"a": 4, "b": 1, "c": 3}, {"a": 0, "b": 2, "c": 43}, {"a": 1, "b": 4, "c": 3}, {"a": 1, "b": 4, "c": 14}]`), JSON.parse(`[[{"a": 4, "b": 1, "c": 3}], [{"a": 0, "b": 2, "c": 43}], [{"a": 1, "b": 4, "c": 14}, {"a": 1, "b": 4, "c": 3}]]`), JSON.parse(`[[{"a": 1, "b": 4, "c": 14}, {"a": 0, "b": 2, "c": 43}], [{"a": 4, "b": 1, "c": 3}, {"a": 1, "b": 4, "c": 3}]]`)]);
+    const input = JSON.parse(
+      `[{"a": 1, "b": 4, "c": 14}, {"a": 4, "b": 1, "c": 3}, {"a": 1, "b": 4, "c": 3}, {"a": 0, "b": 2, "c": 43}]`,
+    );
+    const result = jq(
+      `(sort_by(.b) | sort_by(.a)), sort_by(.a, .b), sort_by(.b, .c), group_by(.b), group_by(.a + .b - .c == 2)`,
+      input,
+    );
+    expect(result).toEqual([
+      JSON.parse(
+        `[{"a": 0, "b": 2, "c": 43}, {"a": 1, "b": 4, "c": 14}, {"a": 1, "b": 4, "c": 3}, {"a": 4, "b": 1, "c": 3}]`,
+      ),
+      JSON.parse(
+        `[{"a": 0, "b": 2, "c": 43}, {"a": 1, "b": 4, "c": 14}, {"a": 1, "b": 4, "c": 3}, {"a": 4, "b": 1, "c": 3}]`,
+      ),
+      JSON.parse(
+        `[{"a": 4, "b": 1, "c": 3}, {"a": 0, "b": 2, "c": 43}, {"a": 1, "b": 4, "c": 3}, {"a": 1, "b": 4, "c": 14}]`,
+      ),
+      JSON.parse(
+        `[[{"a": 4, "b": 1, "c": 3}], [{"a": 0, "b": 2, "c": 43}], [{"a": 1, "b": 4, "c": 14}, {"a": 1, "b": 4, "c": 3}]]`,
+      ),
+      JSON.parse(
+        `[[{"a": 1, "b": 4, "c": 14}, {"a": 0, "b": 2, "c": 43}], [{"a": 4, "b": 1, "c": 3}, {"a": 1, "b": 4, "c": 3}]]`,
+      ),
+    ]);
   });
 
   // line 1676: unique
@@ -521,7 +675,9 @@ describe('jq official: strings', () => {
   test(`[min, max, min_by(.[1]), max_by(.[1]), min_by(.[2]), max_by(.[2])] | [[4,2,"a"],[3,1,"a"],[2,4,"a"],[1,3,"a"]]`, () => {
     const input = JSON.parse(`[[4,2,"a"],[3,1,"a"],[2,4,"a"],[1,3,"a"]]`);
     const result = jq(`[min, max, min_by(.[1]), max_by(.[1]), min_by(.[2]), max_by(.[2])]`, input);
-    expect(result).toEqual([JSON.parse(`[[1,3,"a"],[4,2,"a"],[3,1,"a"],[2,4,"a"],[4,2,"a"],[1,3,"a"]]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[[1,3,"a"],[4,2,"a"],[3,1,"a"],[2,4,"a"],[4,2,"a"],[1,3,"a"]]`),
+    ]);
   });
 
   // line 1688: [min,max,min_by(.),max_by(.)]
@@ -561,7 +717,9 @@ describe('jq official: strings', () => {
 
   // line 1708: from_entries
   test(`from_entries | [{"key":"a", "value":1}, {"Key":"b", "Value":2}, {"name":"c", "value":3}, {"Name":"d", "Value":4}]`, () => {
-    const input = JSON.parse(`[{"key":"a", "value":1}, {"Key":"b", "Value":2}, {"name":"c", "value":3}, {"Name":"d", "Value":4}]`);
+    const input = JSON.parse(
+      `[{"key":"a", "value":1}, {"Key":"b", "Value":2}, {"name":"c", "value":3}, {"Name":"d", "Value":4}]`,
+    );
     const result = jq(`from_entries`, input);
     expect(result).toEqual([JSON.parse(`{"a": 1, "b": 2, "c": 3, "d": 4}`)]);
   });
@@ -632,15 +790,31 @@ describe('jq official: strings', () => {
   // line 2507: .[] as [$x, $y] | try ["ok", ($x | ltrimstr($y))] catch ["ko", .]
   test(`.[] as [\$x, \$y] | try ["ok", (\$x | ltrimstr(\$y))] catch ["ko", .] | [["hi",1],[1,"hi"],["hi","hi"],[1,1]]`, () => {
     const input = JSON.parse(`[["hi",1],[1,"hi"],["hi","hi"],[1,1]]`);
-    const result = jq(`.[] as [\$x, \$y] | try ["ok", (\$x | ltrimstr(\$y))] catch ["ko", .]`, input);
-    expect(result).toEqual([JSON.parse(`["ko","startswith() requires string inputs"]`), JSON.parse(`["ko","startswith() requires string inputs"]`), JSON.parse(`["ok",""]`), JSON.parse(`["ko","startswith() requires string inputs"]`)]);
+    const result = jq(
+      `.[] as [\$x, \$y] | try ["ok", (\$x | ltrimstr(\$y))] catch ["ko", .]`,
+      input,
+    );
+    expect(result).toEqual([
+      JSON.parse(`["ko","startswith() requires string inputs"]`),
+      JSON.parse(`["ko","startswith() requires string inputs"]`),
+      JSON.parse(`["ok",""]`),
+      JSON.parse(`["ko","startswith() requires string inputs"]`),
+    ]);
   });
 
   // line 2514: .[] as [$x, $y] | try ["ok", ($x | rtrimstr($y))] catch ["ko", .]
   test(`.[] as [\$x, \$y] | try ["ok", (\$x | rtrimstr(\$y))] catch ["ko", .] | [["hi",1],[1,"hi"],["hi","hi"],[1,1]]`, () => {
     const input = JSON.parse(`[["hi",1],[1,"hi"],["hi","hi"],[1,1]]`);
-    const result = jq(`.[] as [\$x, \$y] | try ["ok", (\$x | rtrimstr(\$y))] catch ["ko", .]`, input);
-    expect(result).toEqual([JSON.parse(`["ko","endswith() requires string inputs"]`), JSON.parse(`["ko","endswith() requires string inputs"]`), JSON.parse(`["ok",""]`), JSON.parse(`["ko","endswith() requires string inputs"]`)]);
+    const result = jq(
+      `.[] as [\$x, \$y] | try ["ok", (\$x | rtrimstr(\$y))] catch ["ko", .]`,
+      input,
+    );
+    expect(result).toEqual([
+      JSON.parse(`["ko","endswith() requires string inputs"]`),
+      JSON.parse(`["ko","endswith() requires string inputs"]`),
+      JSON.parse(`["ok",""]`),
+      JSON.parse(`["ko","endswith() requires string inputs"]`),
+    ]);
   });
 
   // line 2539: strflocaltime("" | ., @uri)
@@ -649,5 +823,4 @@ describe('jq official: strings', () => {
     const result = jq(`strflocaltime("" | ., @uri)`, input);
     expect(result).toEqual([JSON.parse(`""`), JSON.parse(`""`)]);
   });
-
 });

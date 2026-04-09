@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: variables', () => {
+describe("jq official: variables", () => {
   // line 498: 1 as $x | 2 as $y | [$x,$y,$x]
   test(`1 as \$x | 2 as \$y | [\$x,\$y,\$x] | null`, () => {
     const input = JSON.parse(`null`);
@@ -58,7 +58,10 @@ describe('jq official: variables', () => {
   // line 530: . as {as: $kw, "str": $str, ("e"+"x"+"p"): $exp} | [$kw, $str, $exp]
   test(`. as {as: \$kw, "str": \$str, ("e"+"x"+"p"): \$exp} | [\$kw, \$str, \$exp] | {"as": 1, "str": 2, "exp": 3}`, () => {
     const input = JSON.parse(`{"as": 1, "str": 2, "exp": 3}`);
-    const result = jq(`. as {as: \$kw, "str": \$str, ("e"+"x"+"p"): \$exp} | [\$kw, \$str, \$exp]`, input);
+    const result = jq(
+      `. as {as: \$kw, "str": \$str, ("e"+"x"+"p"): \$exp} | [\$kw, \$str, \$exp]`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`[1, 2, 3]`)]);
   });
 
@@ -100,14 +103,20 @@ describe('jq official: variables', () => {
   // line 2280: reduce .[] as $then (4 as $else | $else; . as $elif | . + $then * $elif)
   test(`reduce .[] as \$then (4 as \$else | \$else; . as \$elif | . + \$then * \$elif) | [1,2,3]`, () => {
     const input = JSON.parse(`[1,2,3]`);
-    const result = jq(`reduce .[] as \$then (4 as \$else | \$else; . as \$elif | . + \$then * \$elif)`, input);
+    const result = jq(
+      `reduce .[] as \$then (4 as \$else | \$else; . as \$elif | . + \$then * \$elif)`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`96`)]);
   });
 
   // line 2284: 1 as $foreach | 2 as $and | 3 as $or | { $foreach, $and, $or, a }
   test(`1 as \$foreach | 2 as \$and | 3 as \$or | { \$foreach, \$and, \$or, a } | {"a":4,"b":5}`, () => {
     const input = JSON.parse(`{"a":4,"b":5}`);
-    const result = jq(`1 as \$foreach | 2 as \$and | 3 as \$or | { \$foreach, \$and, \$or, a }`, input);
+    const result = jq(
+      `1 as \$foreach | 2 as \$and | 3 as \$or | { \$foreach, \$and, \$or, a }`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`{"foreach":1,"and":2,"or":3,"a":4}`)]);
   });
 
@@ -117,5 +126,4 @@ describe('jq official: variables', () => {
     const result = jq(`[ foreach .[] as \$try (1 as \$catch | \$catch - 1; . + \$try; .) ]`, input);
     expect(result).toEqual([JSON.parse(`[10,19,27,34]`)]);
   });
-
 });

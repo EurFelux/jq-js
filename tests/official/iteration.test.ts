@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: iteration', () => {
+describe("jq official: iteration", () => {
   // line 237: .[]
   test(`.[] | [1,2,3]`, () => {
     const input = JSON.parse(`[1,2,3]`);
@@ -156,7 +156,10 @@ describe('jq official: iteration', () => {
   // line 333: [label $out | foreach .[] as $item ([3, null]; if .[0] < 1 then break $out else [.[0] -1, $item] end; .[1])]
   test(`[label \$out | foreach .[] as \$item ([3, null]; if .[0] < 1 then break \$out else [.[0] -1, \$item] end; .[1])] | [11,22,33,44,55,66,77,88,99]`, () => {
     const input = JSON.parse(`[11,22,33,44,55,66,77,88,99]`);
-    const result = jq(`[label \$out | foreach .[] as \$item ([3, null]; if .[0] < 1 then break \$out else [.[0] -1, \$item] end; .[1])]`, input);
+    const result = jq(
+      `[label \$out | foreach .[] as \$item ([3, null]; if .[0] < 1 then break \$out else [.[0] -1, \$item] end; .[1])]`,
+      input,
+    );
     expect(result).toEqual([JSON.parse(`[11,22,33]`)]);
   });
 
@@ -346,7 +349,10 @@ describe('jq official: iteration', () => {
   test(`flatten(3,2,1) | [0, [1], [[2]], [[[3]]]]`, () => {
     const input = JSON.parse(`[0, [1], [[2]], [[[3]]]]`);
     const result = jq(`flatten(3,2,1)`, input);
-    expect(result).toEqual([JSON.parse(`[0,1,2,3]`), JSON.parse(`[0,1,2,[3]]`), JSON.parse(`[0,1,[2],[[3]]]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[0,1,2,3]`),
+      JSON.parse(`[0,1,2,[3]]`),
+      JSON.parse(`[0,1,[2],[[3]]]`),
+    ]);
   });
-
 });

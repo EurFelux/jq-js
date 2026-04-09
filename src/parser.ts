@@ -1,6 +1,6 @@
-import type { AstNode, BindingPattern, ObjectEntry } from './ast.js';
-import { JqParseError } from './errors.js';
-import { type Token, TokenType } from './tokens.js';
+import type { AstNode, BindingPattern, ObjectEntry } from "./ast.js";
+import { JqParseError } from "./errors.js";
+import { type Token, TokenType } from "./tokens.js";
 
 class Parser {
   private pos = 0;
@@ -47,18 +47,18 @@ class Parser {
         const pattern = this.parsePattern();
         this.expect(TokenType.Pipe);
         const body = this.parsePipe();
-        left = { kind: 'as', expr: left, pattern, body, pos: left.pos };
+        left = { kind: "as", expr: left, pattern, body, pos: left.pos };
       } else if (this.match(TokenType.Pipe)) {
         const right = this.parseComma();
-        left = { kind: 'pipe', left, right, pos: left.pos };
+        left = { kind: "pipe", left, right, pos: left.pos };
       } else if (this.isUpdateOp()) {
-        const op = this.advance().value as '|=' | '+=' | '-=' | '*=' | '/=' | '%=' | '//=';
+        const op = this.advance().value as "|=" | "+=" | "-=" | "*=" | "/=" | "%=" | "//=";
         const body = this.parseComma();
-        left = { kind: 'update', path: left, op, body, pos: left.pos };
+        left = { kind: "update", path: left, op, body, pos: left.pos };
       } else if (this.peek().type === TokenType.Assign) {
         this.advance();
         const value = this.parseComma();
-        left = { kind: 'assign', path: left, value, pos: left.pos };
+        left = { kind: "assign", path: left, value, pos: left.pos };
       } else {
         break;
       }
@@ -68,16 +68,21 @@ class Parser {
 
   private isUpdateOp(): boolean {
     const t = this.peek().type;
-    return t === TokenType.UpdatePipe || t === TokenType.PlusAssign ||
-      t === TokenType.MinusAssign || t === TokenType.MultiplyAssign ||
-      t === TokenType.DivideAssign || t === TokenType.ModuloAssign ||
-      t === TokenType.AltAssign;
+    return (
+      t === TokenType.UpdatePipe ||
+      t === TokenType.PlusAssign ||
+      t === TokenType.MinusAssign ||
+      t === TokenType.MultiplyAssign ||
+      t === TokenType.DivideAssign ||
+      t === TokenType.ModuloAssign ||
+      t === TokenType.AltAssign
+    );
   }
 
   private parsePattern(): BindingPattern {
     if (this.peek().type === TokenType.Variable) {
       const token = this.advance();
-      return { type: 'variable', name: token.value };
+      return { type: "variable", name: token.value };
     }
     if (this.peek().type === TokenType.LBracket) {
       this.advance();
@@ -89,7 +94,7 @@ class Parser {
         }
       }
       this.expect(TokenType.RBracket);
-      return { type: 'array', elements };
+      return { type: "array", elements };
     }
     if (this.peek().type === TokenType.LBrace) {
       this.advance();
@@ -101,9 +106,9 @@ class Parser {
         }
       }
       this.expect(TokenType.RBrace);
-      return { type: 'object', entries };
+      return { type: "object", entries };
     }
-    throw new JqParseError('Expected binding pattern ($var, [...], or {...})', this.peek().pos);
+    throw new JqParseError("Expected binding pattern ($var, [...], or {...})", this.peek().pos);
   }
 
   private parsePatternObjectEntry(): { key: AstNode; pattern: BindingPattern } {
@@ -117,7 +122,7 @@ class Parser {
       }
       const pattern = this.parsePattern();
       return {
-        key: { kind: 'literal', value: varToken.value.slice(1), pos: varToken.pos },
+        key: { kind: "literal", value: varToken.value.slice(1), pos: varToken.pos },
         pattern,
       };
     }
@@ -125,16 +130,16 @@ class Parser {
     let key: AstNode;
     if (this.peek().type === TokenType.Ident) {
       const name = this.advance();
-      key = { kind: 'literal', value: name.value, pos: name.pos };
+      key = { kind: "literal", value: name.value, pos: name.pos };
     } else if (this.peek().type === TokenType.String) {
       const str = this.advance();
-      key = { kind: 'literal', value: str.value, pos: str.pos };
+      key = { kind: "literal", value: str.value, pos: str.pos };
     } else if (this.peek().type === TokenType.LParen) {
       this.advance();
       key = this.parsePipe();
       this.expect(TokenType.RParen);
     } else {
-      throw new JqParseError('Expected object pattern key', this.peek().pos);
+      throw new JqParseError("Expected object pattern key", this.peek().pos);
     }
     this.expect(TokenType.Colon);
     const pattern = this.parsePattern();
@@ -146,7 +151,7 @@ class Parser {
     let left = this.parseAlternative();
     while (this.match(TokenType.Comma)) {
       const right = this.parseAlternative();
-      left = { kind: 'comma', left, right, pos: left.pos };
+      left = { kind: "comma", left, right, pos: left.pos };
     }
     return left;
   }
@@ -156,7 +161,7 @@ class Parser {
     let left = this.parseLogic();
     while (this.match(TokenType.Alternative)) {
       const right = this.parseLogic();
-      left = { kind: 'alternative', left, right, pos: left.pos };
+      left = { kind: "alternative", left, right, pos: left.pos };
     }
     return left;
   }
@@ -165,9 +170,9 @@ class Parser {
   private parseLogic(): AstNode {
     let left = this.parseComparison();
     while (this.peek().type === TokenType.And || this.peek().type === TokenType.Or) {
-      const op = this.advance().value as 'and' | 'or';
+      const op = this.advance().value as "and" | "or";
       const right = this.parseComparison();
-      left = { kind: 'logic', op, left, right, pos: left.pos };
+      left = { kind: "logic", op, left, right, pos: left.pos };
     }
     return left;
   }
@@ -177,13 +182,16 @@ class Parser {
     let left = this.parseAddition();
     const t = this.peek().type;
     if (
-      t === TokenType.Eq || t === TokenType.Neq ||
-      t === TokenType.Lt || t === TokenType.Gt ||
-      t === TokenType.Lte || t === TokenType.Gte
+      t === TokenType.Eq ||
+      t === TokenType.Neq ||
+      t === TokenType.Lt ||
+      t === TokenType.Gt ||
+      t === TokenType.Lte ||
+      t === TokenType.Gte
     ) {
-      const op = this.advance().value as '==' | '!=' | '<' | '>' | '<=' | '>=';
+      const op = this.advance().value as "==" | "!=" | "<" | ">" | "<=" | ">=";
       const right = this.parseAddition();
-      left = { kind: 'compare', op, left, right, pos: left.pos };
+      left = { kind: "compare", op, left, right, pos: left.pos };
     }
     return left;
   }
@@ -192,9 +200,9 @@ class Parser {
   private parseAddition(): AstNode {
     let left = this.parseMultiplication();
     while (this.peek().type === TokenType.Plus || this.peek().type === TokenType.Minus) {
-      const op = this.advance().value as '+' | '-';
+      const op = this.advance().value as "+" | "-";
       const right = this.parseMultiplication();
-      left = { kind: 'arith', op, left, right, pos: left.pos };
+      left = { kind: "arith", op, left, right, pos: left.pos };
     }
     return left;
   }
@@ -207,9 +215,9 @@ class Parser {
       this.peek().type === TokenType.Divide ||
       this.peek().type === TokenType.Modulo
     ) {
-      const op = this.advance().value as '*' | '/' | '%';
+      const op = this.advance().value as "*" | "/" | "%";
       const right = this.parseUnary();
-      left = { kind: 'arith', op, left, right, pos: left.pos };
+      left = { kind: "arith", op, left, right, pos: left.pos };
     }
     return left;
   }
@@ -219,7 +227,7 @@ class Parser {
     if (this.peek().type === TokenType.Minus) {
       const token = this.advance();
       const expr = this.parseUnary();
-      return { kind: 'negate', expr, pos: token.pos };
+      return { kind: "negate", expr, pos: token.pos };
     }
     return this.parsePostfix();
   }
@@ -236,17 +244,17 @@ class Parser {
         if (this.peek().type === TokenType.Ident) {
           const name = this.advance();
           left = {
-            kind: 'pipe',
+            kind: "pipe",
             left,
-            right: { kind: 'field', name: name.value, pos: name.pos },
+            right: { kind: "field", name: name.value, pos: name.pos },
             pos: left.pos,
           };
         } else if (this.peek().type === TokenType.String) {
           const str = this.advance();
           left = {
-            kind: 'pipe',
+            kind: "pipe",
             left,
-            right: { kind: 'field', name: str.value, pos: str.pos },
+            right: { kind: "field", name: str.value, pos: str.pos },
             pos: left.pos,
           };
         } else {
@@ -256,7 +264,7 @@ class Parser {
         left = this.parseBracketPostfix(left);
       } else if (this.peek().type === TokenType.Question) {
         const token = this.advance();
-        left = { kind: 'optional', expr: left, pos: token.pos };
+        left = { kind: "optional", expr: left, pos: token.pos };
       } else {
         break;
       }
@@ -271,7 +279,7 @@ class Parser {
     // .[] — iterate
     if (this.peek().type === TokenType.RBracket) {
       this.advance();
-      return { kind: 'pipe', left, right: { kind: 'iterate', pos: bracketPos }, pos: left.pos };
+      return { kind: "pipe", left, right: { kind: "iterate", pos: bracketPos }, pos: left.pos };
     }
 
     // Check for slice: [from:to]
@@ -280,9 +288,9 @@ class Parser {
       const to = this.peek().type === TokenType.RBracket ? null : this.parsePipe();
       this.expect(TokenType.RBracket);
       return {
-        kind: 'pipe',
+        kind: "pipe",
         left,
-        right: { kind: 'slice', from: null, to, pos: bracketPos },
+        right: { kind: "slice", from: null, to, pos: bracketPos },
         pos: left.pos,
       };
     }
@@ -294,18 +302,18 @@ class Parser {
       const to = this.peek().type === TokenType.RBracket ? null : this.parsePipe();
       this.expect(TokenType.RBracket);
       return {
-        kind: 'pipe',
+        kind: "pipe",
         left,
-        right: { kind: 'slice', from: indexExpr, to, pos: bracketPos },
+        right: { kind: "slice", from: indexExpr, to, pos: bracketPos },
         pos: left.pos,
       };
     }
 
     this.expect(TokenType.RBracket);
     return {
-      kind: 'pipe',
+      kind: "pipe",
       left,
-      right: { kind: 'index', index: indexExpr, pos: bracketPos },
+      right: { kind: "index", index: indexExpr, pos: bracketPos },
       pos: left.pos,
     };
   }
@@ -319,28 +327,28 @@ class Parser {
         // Check for field access: .foo
         if (this.peek().type === TokenType.Ident) {
           const name = this.advance();
-          return { kind: 'field', name: name.value, pos: token.pos };
+          return { kind: "field", name: name.value, pos: token.pos };
         }
         // Check for ."foo" (quoted field access)
         if (this.peek().type === TokenType.String) {
           const str = this.advance();
-          return { kind: 'field', name: str.value, pos: token.pos };
+          return { kind: "field", name: str.value, pos: token.pos };
         }
         // Check for .[
         if (this.peek().type === TokenType.LBracket) {
-          const identity: AstNode = { kind: 'identity', pos: token.pos };
+          const identity: AstNode = { kind: "identity", pos: token.pos };
           return this.parseBracketPostfix(identity);
         }
-        return { kind: 'identity', pos: token.pos };
+        return { kind: "identity", pos: token.pos };
       }
 
       case TokenType.Recurse:
         this.advance();
-        return { kind: 'recurse', pos: token.pos };
+        return { kind: "recurse", pos: token.pos };
 
       case TokenType.Number:
         this.advance();
-        return { kind: 'literal', value: Number(token.value), pos: token.pos };
+        return { kind: "literal", value: Number(token.value), pos: token.pos };
 
       case TokenType.String:
         this.advance();
@@ -348,19 +356,19 @@ class Parser {
 
       case TokenType.True:
         this.advance();
-        return { kind: 'literal', value: true, pos: token.pos };
+        return { kind: "literal", value: true, pos: token.pos };
 
       case TokenType.False:
         this.advance();
-        return { kind: 'literal', value: false, pos: token.pos };
+        return { kind: "literal", value: false, pos: token.pos };
 
       case TokenType.Null:
         this.advance();
-        return { kind: 'literal', value: null, pos: token.pos };
+        return { kind: "literal", value: null, pos: token.pos };
 
       case TokenType.Not: {
         this.advance();
-        return { kind: 'not', expr: { kind: 'identity', pos: token.pos }, pos: token.pos };
+        return { kind: "not", expr: { kind: "identity", pos: token.pos }, pos: token.pos };
       }
 
       case TokenType.LParen: {
@@ -374,11 +382,11 @@ class Parser {
         this.advance();
         if (this.peek().type === TokenType.RBracket) {
           this.advance();
-          return { kind: 'array', expr: null, pos: token.pos };
+          return { kind: "array", expr: null, pos: token.pos };
         }
         const expr = this.parsePipe();
         this.expect(TokenType.RBracket);
-        return { kind: 'array', expr, pos: token.pos };
+        return { kind: "array", expr, pos: token.pos };
       }
 
       case TokenType.LBrace:
@@ -392,7 +400,7 @@ class Parser {
 
       case TokenType.Variable:
         this.advance();
-        return { kind: 'var_ref', name: token.value, pos: token.pos };
+        return { kind: "var_ref", name: token.value, pos: token.pos };
 
       case TokenType.Reduce:
         return this.parseReduce();
@@ -406,7 +414,7 @@ class Parser {
       case TokenType.Break: {
         this.advance();
         const name = this.expect(TokenType.Variable);
-        return { kind: 'break', name: name.value, pos: token.pos };
+        return { kind: "break", name: name.value, pos: token.pos };
       }
 
       case TokenType.Def:
@@ -425,24 +433,24 @@ class Parser {
 
   private parseStringValue(token: Token): AstNode {
     // Check for string interpolation \(...)
-    if (token.value.includes('\\(')) {
+    if (token.value.includes("\\(")) {
       const parts: (string | AstNode)[] = [];
-      let current = '';
+      let current = "";
       let j = 0;
       const val = token.value;
 
       while (j < val.length) {
-        if (val[j] === '\\' && val[j + 1] === '(') {
+        if (val[j] === "\\" && val[j + 1] === "(") {
           if (current) {
             parts.push(current);
-            current = '';
+            current = "";
           }
           j += 2; // skip \(
           let depth = 1;
-          let interpExpr = '';
+          let interpExpr = "";
           while (j < val.length && depth > 0) {
-            if (val[j] === '(') depth++;
-            else if (val[j] === ')') {
+            if (val[j] === "(") depth++;
+            else if (val[j] === ")") {
               depth--;
               if (depth === 0) break;
             }
@@ -459,10 +467,10 @@ class Parser {
         }
       }
       if (current) parts.push(current);
-      return { kind: 'string_interpolation', parts, pos: token.pos };
+      return { kind: "string_interpolation", parts, pos: token.pos };
     }
 
-    return { kind: 'literal', value: token.value, pos: token.pos };
+    return { kind: "literal", value: token.value, pos: token.pos };
   }
 
   private parseObject(): AstNode {
@@ -477,25 +485,31 @@ class Parser {
     }
 
     this.expect(TokenType.RBrace);
-    return { kind: 'object', entries, pos: token.pos };
+    return { kind: "object", entries, pos: token.pos };
   }
 
   private parseObjectEntry(): ObjectEntry {
     // {name} shorthand — equivalent to {name: .name}
-    if (this.peek().type === TokenType.Ident && this.tokens[this.pos + 1]?.type !== TokenType.Colon) {
+    if (
+      this.peek().type === TokenType.Ident &&
+      this.tokens[this.pos + 1]?.type !== TokenType.Colon
+    ) {
       const name = this.advance();
       return {
-        key: { kind: 'literal', value: name.value, pos: name.pos },
+        key: { kind: "literal", value: name.value, pos: name.pos },
         value: null,
       };
     }
 
     // {$var} shorthand — equivalent to {(var_name): $var}
-    if (this.peek().type === TokenType.Variable && this.tokens[this.pos + 1]?.type !== TokenType.Colon) {
+    if (
+      this.peek().type === TokenType.Variable &&
+      this.tokens[this.pos + 1]?.type !== TokenType.Colon
+    ) {
       const varToken = this.advance();
       return {
-        key: { kind: 'literal', value: varToken.value.slice(1), pos: varToken.pos },
-        value: { kind: 'var_ref', name: varToken.value, pos: varToken.pos },
+        key: { kind: "literal", value: varToken.value.slice(1), pos: varToken.pos },
+        value: { kind: "var_ref", name: varToken.value, pos: varToken.pos },
       };
     }
 
@@ -503,7 +517,7 @@ class Parser {
     let key: AstNode;
     if (this.peek().type === TokenType.Ident) {
       const name = this.advance();
-      key = { kind: 'literal', value: name.value, pos: name.pos };
+      key = { kind: "literal", value: name.value, pos: name.pos };
     } else if (this.peek().type === TokenType.String) {
       const str = this.advance();
       key = this.parseStringValue(str);
@@ -513,9 +527,9 @@ class Parser {
       this.expect(TokenType.RParen);
     } else if (this.peek().type === TokenType.Variable) {
       const varToken = this.advance();
-      key = { kind: 'literal', value: varToken.value.slice(1), pos: varToken.pos };
+      key = { kind: "literal", value: varToken.value.slice(1), pos: varToken.pos };
     } else {
-      throw new JqParseError('Expected object key', this.peek().pos);
+      throw new JqParseError("Expected object key", this.peek().pos);
     }
 
     this.expect(TokenType.Colon);
@@ -543,7 +557,7 @@ class Parser {
     }
 
     this.expect(TokenType.End);
-    return { kind: 'condition', condition, then, elifs, else_, pos: token.pos };
+    return { kind: "condition", condition, then, elifs, else_, pos: token.pos };
   }
 
   private parseTry(): AstNode {
@@ -553,15 +567,15 @@ class Parser {
     if (this.match(TokenType.Catch)) {
       catch_ = this.parsePostfix();
     }
-    return { kind: 'try', expr, catch_, pos: token.pos };
+    return { kind: "try", expr, catch_, pos: token.pos };
   }
 
   private parseFuncOrIdent(): AstNode {
     const name = this.expect(TokenType.Ident);
 
     // not is a special postfix operator in jq
-    if (name.value === 'not') {
-      return { kind: 'not', expr: { kind: 'identity', pos: name.pos }, pos: name.pos };
+    if (name.value === "not") {
+      return { kind: "not", expr: { kind: "identity", pos: name.pos }, pos: name.pos };
     }
 
     // Check for function call: name(args)
@@ -575,11 +589,11 @@ class Parser {
         }
       }
       this.expect(TokenType.RParen);
-      return { kind: 'func', name: name.value, args, pos: name.pos };
+      return { kind: "func", name: name.value, args, pos: name.pos };
     }
 
     // Zero-arg function call (like length, keys, etc.)
-    return { kind: 'func', name: name.value, args: [], pos: name.pos };
+    return { kind: "func", name: name.value, args: [], pos: name.pos };
   }
 
   // reduce EXPR as $VAR (INIT; UPDATE)
@@ -593,7 +607,7 @@ class Parser {
     this.expect(TokenType.Semicolon);
     const update = this.parsePipe();
     this.expect(TokenType.RParen);
-    return { kind: 'reduce', expr, pattern, init, update, pos: token.pos };
+    return { kind: "reduce", expr, pattern, init, update, pos: token.pos };
   }
 
   // foreach EXPR as $VAR (INIT; UPDATE; EXTRACT?)
@@ -611,7 +625,7 @@ class Parser {
       extract = this.parsePipe();
     }
     this.expect(TokenType.RParen);
-    return { kind: 'foreach', expr, pattern, init, update, extract, pos: token.pos };
+    return { kind: "foreach", expr, pattern, init, update, extract, pos: token.pos };
   }
 
   // label $NAME | BODY
@@ -620,7 +634,7 @@ class Parser {
     const name = this.expect(TokenType.Variable);
     this.expect(TokenType.Pipe);
     const body = this.parsePipe();
-    return { kind: 'label', name: name.value, body, pos: token.pos };
+    return { kind: "label", name: name.value, body, pos: token.pos };
   }
 
   // def NAME(PARAMS): BODY; REST
@@ -643,12 +657,12 @@ class Parser {
     const body = this.parsePipe();
     this.expect(TokenType.Semicolon);
     const next = this.parsePipe();
-    return { kind: 'def', name: name.value, params, body, next, pos: token.pos };
+    return { kind: "def", name: name.value, params, body, next, pos: token.pos };
   }
 }
 
 // Re-import lex here to support string interpolation parsing
-import { lex } from './lexer.js';
+import { lex } from "./lexer.js";
 
 export function parse(tokens: Token[]): AstNode {
   return new Parser(tokens).parse();

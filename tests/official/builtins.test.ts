@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: builtins', () => {
+describe("jq official: builtins", () => {
   // line 577: 1+1
   test(`1+1 | null`, () => {
     const input = JSON.parse(`null`);
@@ -156,8 +156,16 @@ describe('jq official: builtins', () => {
   // line 661: 9E999999999, 9999999999E999999990, 1E-999999999, 0.000000001E-999999990
   test(`9E999999999, 9999999999E999999990, 1E-999999999, 0.000000001E-999999990 | null`, () => {
     const input = JSON.parse(`null`);
-    const result = jq(`9E999999999, 9999999999E999999990, 1E-999999999, 0.000000001E-999999990`, input);
-    expect(result).toEqual([JSON.parse(`9E+999999999`), JSON.parse(`9.999999999E+999999999`), JSON.parse(`1E-999999999`), JSON.parse(`1E-999999999`)]);
+    const result = jq(
+      `9E999999999, 9999999999E999999990, 1E-999999999, 0.000000001E-999999990`,
+      input,
+    );
+    expect(result).toEqual([
+      JSON.parse(`9E+999999999`),
+      JSON.parse(`9.999999999E+999999999`),
+      JSON.parse(`1E-999999999`),
+      JSON.parse(`1E-999999999`),
+    ]);
   });
 
   // line 668: 5E500000000 > 5E-5000000000, 10000E500000000 > 10000E-5000000000
@@ -171,7 +179,12 @@ describe('jq official: builtins', () => {
   test(`(1e999999999, 10e999999999) > (1e-1147483646, 0.1e-1147483646) | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`(1e999999999, 10e999999999) > (1e-1147483646, 0.1e-1147483646)`, input);
-    expect(result).toEqual([JSON.parse(`true`), JSON.parse(`true`), JSON.parse(`true`), JSON.parse(`true`)]);
+    expect(result).toEqual([
+      JSON.parse(`true`),
+      JSON.parse(`true`),
+      JSON.parse(`true`),
+      JSON.parse(`true`),
+    ]);
   });
 
   // line 681: 25 % 7
@@ -213,7 +226,9 @@ describe('jq official: builtins', () => {
   test(`"123\\u0000456" | try tonumber catch . | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`"123\\u0000456" | try tonumber catch .`, input);
-    expect(result).toEqual([JSON.parse(`"string (\\"123\\\\u0000456\\") cannot be parsed as a number"`)]);
+    expect(result).toEqual([
+      JSON.parse(`"string (\\"123\\\\u0000456\\") cannot be parsed as a number"`),
+    ]);
   });
 
   // line 705: map(toboolean)
@@ -227,21 +242,46 @@ describe('jq official: builtins', () => {
   test(`.[] | try toboolean catch . | [null,0,"tru","truee","fals","falsee",[],{}]`, () => {
     const input = JSON.parse(`[null,0,"tru","truee","fals","falsee",[],{}]`);
     const result = jq(`.[] | try toboolean catch .`, input);
-    expect(result).toEqual([JSON.parse(`"null (null) cannot be parsed as a boolean"`), JSON.parse(`"number (0) cannot be parsed as a boolean"`), JSON.parse(`"string (\\"tru\\") cannot be parsed as a boolean"`), JSON.parse(`"string (\\"truee\\") cannot be parsed as a boolean"`), JSON.parse(`"string (\\"fals\\") cannot be parsed as a boolean"`), JSON.parse(`"string (\\"falsee\\") cannot be parsed as a boolean"`), JSON.parse(`"array ([]) cannot be parsed as a boolean"`), JSON.parse(`"object ({}) cannot be parsed as a boolean"`)]);
+    expect(result).toEqual([
+      JSON.parse(`"null (null) cannot be parsed as a boolean"`),
+      JSON.parse(`"number (0) cannot be parsed as a boolean"`),
+      JSON.parse(`"string (\\"tru\\") cannot be parsed as a boolean"`),
+      JSON.parse(`"string (\\"truee\\") cannot be parsed as a boolean"`),
+      JSON.parse(`"string (\\"fals\\") cannot be parsed as a boolean"`),
+      JSON.parse(`"string (\\"falsee\\") cannot be parsed as a boolean"`),
+      JSON.parse(`"array ([]) cannot be parsed as a boolean"`),
+      JSON.parse(`"object ({}) cannot be parsed as a boolean"`),
+    ]);
   });
 
   // line 720: "true\u0000x", "false\u0000" | try toboolean catch .
   test(`"true\\u0000x", "false\\u0000" | try toboolean catch . | null`, () => {
     const input = JSON.parse(`null`);
     const result = jq(`"true\\u0000x", "false\\u0000" | try toboolean catch .`, input);
-    expect(result).toEqual([JSON.parse(`"string (\\"true\\\\u0000x\\") cannot be parsed as a boolean"`), JSON.parse(`"string (\\"false\\\\u0000\\") cannot be parsed as a boolean"`)]);
+    expect(result).toEqual([
+      JSON.parse(`"string (\\"true\\\\u0000x\\") cannot be parsed as a boolean"`),
+      JSON.parse(`"string (\\"false\\\\u0000\\") cannot be parsed as a boolean"`),
+    ]);
   });
 
   // line 725: [{"a":42},.object,10,.num,false,true,null,"b",[1,4]] | .[] as $x | [$x == .[]]
   test(`[{"a":42},.object,10,.num,false,true,null,"b",[1,4]] | .[] as \$x | [\$x == .[]] | {"object": {"a":42}, "num":10.0}`, () => {
     const input = JSON.parse(`{"object": {"a":42}, "num":10.0}`);
-    const result = jq(`[{"a":42},.object,10,.num,false,true,null,"b",[1,4]] | .[] as \$x | [\$x == .[]]`, input);
-    expect(result).toEqual([JSON.parse(`[true,  true,  false, false, false, false, false, false, false]`), JSON.parse(`[true,  true,  false, false, false, false, false, false, false]`), JSON.parse(`[false, false, true,  true,  false, false, false, false, false]`), JSON.parse(`[false, false, true,  true,  false, false, false, false, false]`), JSON.parse(`[false, false, false, false, true,  false, false, false, false]`), JSON.parse(`[false, false, false, false, false, true,  false, false, false]`), JSON.parse(`[false, false, false, false, false, false, true,  false, false]`), JSON.parse(`[false, false, false, false, false, false, false, true,  false]`), JSON.parse(`[false, false, false, false, false, false, false, false, true ]`)]);
+    const result = jq(
+      `[{"a":42},.object,10,.num,false,true,null,"b",[1,4]] | .[] as \$x | [\$x == .[]]`,
+      input,
+    );
+    expect(result).toEqual([
+      JSON.parse(`[true,  true,  false, false, false, false, false, false, false]`),
+      JSON.parse(`[true,  true,  false, false, false, false, false, false, false]`),
+      JSON.parse(`[false, false, true,  true,  false, false, false, false, false]`),
+      JSON.parse(`[false, false, true,  true,  false, false, false, false, false]`),
+      JSON.parse(`[false, false, false, false, true,  false, false, false, false]`),
+      JSON.parse(`[false, false, false, false, false, true,  false, false, false]`),
+      JSON.parse(`[false, false, false, false, false, false, true,  false, false]`),
+      JSON.parse(`[false, false, false, false, false, false, false, true,  false]`),
+      JSON.parse(`[false, false, false, false, false, false, false, false, true ]`),
+    ]);
   });
 
   // line 737: [.[] | length]
@@ -262,7 +302,11 @@ describe('jq official: builtins', () => {
   test(`[.[] | try utf8bytelength catch .] | [[], {}, [1,2], 55, true, false]`, () => {
     const input = JSON.parse(`[[], {}, [1,2], 55, true, false]`);
     const result = jq(`[.[] | try utf8bytelength catch .]`, input);
-    expect(result).toEqual([JSON.parse(`["array ([]) only strings have UTF-8 byte length","object ({}) only strings have UTF-8 byte length","array ([1,2]) only strings have UTF-8 byte length","number (55) only strings have UTF-8 byte length","boolean (true) only strings have UTF-8 byte length","boolean (false) only strings have UTF-8 byte length"]`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `["array ([]) only strings have UTF-8 byte length","object ({}) only strings have UTF-8 byte length","array ([1,2]) only strings have UTF-8 byte length","number (55) only strings have UTF-8 byte length","boolean (true) only strings have UTF-8 byte length","boolean (false) only strings have UTF-8 byte length"]`,
+      ),
+    ]);
   });
 
   // line 750: map(keys)
@@ -281,7 +325,9 @@ describe('jq official: builtins', () => {
 
   // line 758: map(add)
   test(`map(add) | [[], [1,2,3], ["a","b","c"], [[3],[4,5],[6]], [{"a":1}, {"b":2}, {"a":3}]]`, () => {
-    const input = JSON.parse(`[[], [1,2,3], ["a","b","c"], [[3],[4,5],[6]], [{"a":1}, {"b":2}, {"a":3}]]`);
+    const input = JSON.parse(
+      `[[], [1,2,3], ["a","b","c"], [[3],[4,5],[6]], [{"a":1}, {"b":2}, {"a":3}]]`,
+    );
     const result = jq(`map(add)`, input);
     expect(result).toEqual([JSON.parse(`[null, 6, "abc", [3,4,5,6], {"a":3, "b": 2}]`)]);
   });
@@ -313,5 +359,4 @@ describe('jq official: builtins', () => {
     const result = jq(`add({(.[]):1}) | keys`, input);
     expect(result).toEqual([JSON.parse(`["a","b","d"]`)]);
   });
-
 });

@@ -2,10 +2,10 @@
 // Licensed under MIT (Copyright (c) 2012 Stephen Dolan)
 // See: https://github.com/jqlang/jq/blob/master/COPYING
 
-import { describe, expect, test } from 'vitest';
-import { jq } from '../../src/index.js';
+import { describe, expect, test } from "vitest";
+import { jq } from "../../src/index.js";
 
-describe('jq official: paths', () => {
+describe("jq official: paths", () => {
   // line 1110: path(.foo[0,1])
   test(`path(.foo[0,1]) | null`, () => {
     const input = JSON.parse(`null`);
@@ -38,21 +38,29 @@ describe('jq official: paths', () => {
   test(`try path(.a | map(select(.b == 0)) | .[0]) catch . | {"a":[{"b":0}]}`, () => {
     const input = JSON.parse(`{"a":[{"b":0}]}`);
     const result = jq(`try path(.a | map(select(.b == 0)) | .[0]) catch .`, input);
-    expect(result).toEqual([JSON.parse(`"Invalid path expression near attempt to access element 0 of [{\\"b\\":0}]"`)]);
+    expect(result).toEqual([
+      JSON.parse(`"Invalid path expression near attempt to access element 0 of [{\\"b\\":0}]"`),
+    ]);
   });
 
   // line 1131: try path(.a | map(select(.b == 0)) | .c) catch .
   test(`try path(.a | map(select(.b == 0)) | .c) catch . | {"a":[{"b":0}]}`, () => {
     const input = JSON.parse(`{"a":[{"b":0}]}`);
     const result = jq(`try path(.a | map(select(.b == 0)) | .c) catch .`, input);
-    expect(result).toEqual([JSON.parse(`"Invalid path expression near attempt to access element \\"c\\" of [{\\"b\\":0}]"`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `"Invalid path expression near attempt to access element \\"c\\" of [{\\"b\\":0}]"`,
+      ),
+    ]);
   });
 
   // line 1135: try path(.a | map(select(.b == 0)) | .[]) catch .
   test(`try path(.a | map(select(.b == 0)) | .[]) catch . | {"a":[{"b":0}]}`, () => {
     const input = JSON.parse(`{"a":[{"b":0}]}`);
     const result = jq(`try path(.a | map(select(.b == 0)) | .[]) catch .`, input);
-    expect(result).toEqual([JSON.parse(`"Invalid path expression near attempt to iterate through [{\\"b\\":0}]"`)]);
+    expect(result).toEqual([
+      JSON.parse(`"Invalid path expression near attempt to iterate through [{\\"b\\":0}]"`),
+    ]);
   });
 
   // line 1139: path(.a[path(.b)[0]])
@@ -73,14 +81,22 @@ describe('jq official: paths', () => {
   test(`["foo",1] as \$p | getpath(\$p), setpath(\$p; 20), delpaths([\$p]) | {"bar": 42, "foo": ["a", "b", "c", "d"]}`, () => {
     const input = JSON.parse(`{"bar": 42, "foo": ["a", "b", "c", "d"]}`);
     const result = jq(`["foo",1] as \$p | getpath(\$p), setpath(\$p; 20), delpaths([\$p])`, input);
-    expect(result).toEqual([JSON.parse(`"b"`), JSON.parse(`{"bar": 42, "foo": ["a", 20, "c", "d"]}`), JSON.parse(`{"bar": 42, "foo": ["a", "c", "d"]}`)]);
+    expect(result).toEqual([
+      JSON.parse(`"b"`),
+      JSON.parse(`{"bar": 42, "foo": ["a", 20, "c", "d"]}`),
+      JSON.parse(`{"bar": 42, "foo": ["a", "c", "d"]}`),
+    ]);
   });
 
   // line 1153: map(getpath([2])), map(setpath([2]; 42)), map(delpaths([[2]]))
   test(`map(getpath([2])), map(setpath([2]; 42)), map(delpaths([[2]])) | [[0], [0,1], [0,1,2]]`, () => {
     const input = JSON.parse(`[[0], [0,1], [0,1,2]]`);
     const result = jq(`map(getpath([2])), map(setpath([2]; 42)), map(delpaths([[2]]))`, input);
-    expect(result).toEqual([JSON.parse(`[null, null, 2]`), JSON.parse(`[[0,null,42], [0,1,42], [0,1,42]]`), JSON.parse(`[[0], [0,1], [0,1]]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[null, null, 2]`),
+      JSON.parse(`[[0,null,42], [0,1,42], [0,1,42]]`),
+      JSON.parse(`[[0], [0,1], [0,1]]`),
+    ]);
   });
 
   // line 1159: map(delpaths([[0,"foo"]]))
@@ -94,7 +110,11 @@ describe('jq official: paths', () => {
   test(`["foo",1] as \$p | getpath(\$p), setpath(\$p; 20), delpaths([\$p]) | {"bar":false}`, () => {
     const input = JSON.parse(`{"bar":false}`);
     const result = jq(`["foo",1] as \$p | getpath(\$p), setpath(\$p; 20), delpaths([\$p])`, input);
-    expect(result).toEqual([JSON.parse(`null`), JSON.parse(`{"bar":false, "foo": [null, 20]}`), JSON.parse(`{"bar":false}`)]);
+    expect(result).toEqual([
+      JSON.parse(`null`),
+      JSON.parse(`{"bar":false, "foo": [null, 20]}`),
+      JSON.parse(`{"bar":false}`),
+    ]);
   });
 
   // line 1169: delpaths([[-200]])
@@ -114,8 +134,16 @@ describe('jq official: paths', () => {
   // line 1177: del(.), del(empty), del((.foo,.bar,.baz) | .[2,3,0]), del(.foo[0], .bar[0], .foo, .baz.bar[0].x)
   test(`del(.), del(empty), del((.foo,.bar,.baz) | .[2,3,0]), del(.foo[0], .bar[0], .foo, .baz.bar[0].x) | {"foo": [0,1,2,3,4], "bar": [0,1]}`, () => {
     const input = JSON.parse(`{"foo": [0,1,2,3,4], "bar": [0,1]}`);
-    const result = jq(`del(.), del(empty), del((.foo,.bar,.baz) | .[2,3,0]), del(.foo[0], .bar[0], .foo, .baz.bar[0].x)`, input);
-    expect(result).toEqual([JSON.parse(`null`), JSON.parse(`{"foo": [0,1,2,3,4], "bar": [0,1]}`), JSON.parse(`{"foo": [1,4], "bar": [1]}`), JSON.parse(`{"bar": [1]}`)]);
+    const result = jq(
+      `del(.), del(empty), del((.foo,.bar,.baz) | .[2,3,0]), del(.foo[0], .bar[0], .foo, .baz.bar[0].x)`,
+      input,
+    );
+    expect(result).toEqual([
+      JSON.parse(`null`),
+      JSON.parse(`{"foo": [0,1,2,3,4], "bar": [0,1]}`),
+      JSON.parse(`{"foo": [1,4], "bar": [1]}`),
+      JSON.parse(`{"bar": [1]}`),
+    ]);
   });
 
   // line 1184: del(.[1], .[-6], .[2], .[-3:9])
@@ -199,7 +227,13 @@ describe('jq official: paths', () => {
   test(`.[] += 2, .[] *= 2, .[] -= 2, .[] /= 2, .[] %=2 | [1,3,5]`, () => {
     const input = JSON.parse(`[1,3,5]`);
     const result = jq(`.[] += 2, .[] *= 2, .[] -= 2, .[] /= 2, .[] %=2`, input);
-    expect(result).toEqual([JSON.parse(`[3,5,7]`), JSON.parse(`[2,6,10]`), JSON.parse(`[-1,1,3]`), JSON.parse(`[0.5, 1.5, 2.5]`), JSON.parse(`[1,1,1]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[3,5,7]`),
+      JSON.parse(`[2,6,10]`),
+      JSON.parse(`[-1,1,3]`),
+      JSON.parse(`[0.5, 1.5, 2.5]`),
+      JSON.parse(`[1,1,1]`),
+    ]);
   });
 
   // line 1241: [.[] % 7]
@@ -232,9 +266,20 @@ describe('jq official: paths', () => {
 
   // line 1258: .[] | try (getpath(["a",0,"b"]) |= 5) catch .
   test(`.[] | try (getpath(["a",0,"b"]) |= 5) catch . | [null,{"b":0},{"a":0},{"a":null},{"a":[0,1]},{"a":{"b":1}},{"a":[{}]},{"a":[{"c":3}]}]`, () => {
-    const input = JSON.parse(`[null,{"b":0},{"a":0},{"a":null},{"a":[0,1]},{"a":{"b":1}},{"a":[{}]},{"a":[{"c":3}]}]`);
+    const input = JSON.parse(
+      `[null,{"b":0},{"a":0},{"a":null},{"a":[0,1]},{"a":{"b":1}},{"a":[{}]},{"a":[{"c":3}]}]`,
+    );
     const result = jq(`.[] | try (getpath(["a",0,"b"]) |= 5) catch .`, input);
-    expect(result).toEqual([JSON.parse(`{"a":[{"b":5}]}`), JSON.parse(`{"b":0,"a":[{"b":5}]}`), JSON.parse(`"Cannot index number with number (0)"`), JSON.parse(`{"a":[{"b":5}]}`), JSON.parse(`"Cannot index number with string (\\"b\\")"`), JSON.parse(`"Cannot index object with number (0)"`), JSON.parse(`{"a":[{"b":5}]}`), JSON.parse(`{"a":[{"c":3,"b":5}]}`)]);
+    expect(result).toEqual([
+      JSON.parse(`{"a":[{"b":5}]}`),
+      JSON.parse(`{"b":0,"a":[{"b":5}]}`),
+      JSON.parse(`"Cannot index number with number (0)"`),
+      JSON.parse(`{"a":[{"b":5}]}`),
+      JSON.parse(`"Cannot index number with string (\\"b\\")"`),
+      JSON.parse(`"Cannot index object with number (0)"`),
+      JSON.parse(`{"a":[{"b":5}]}`),
+      JSON.parse(`{"a":[{"c":3,"b":5}]}`),
+    ]);
   });
 
   // line 1270: (.[] | select(. >= 2)) |= empty
@@ -276,14 +321,18 @@ describe('jq official: paths', () => {
   test(`try ((map(select(.a == 1))[].b) = 10) catch . | [{"a":0},{"a":1}]`, () => {
     const input = JSON.parse(`[{"a":0},{"a":1}]`);
     const result = jq(`try ((map(select(.a == 1))[].b) = 10) catch .`, input);
-    expect(result).toEqual([JSON.parse(`"Invalid path expression near attempt to iterate through [{\\"a\\":1}]"`)]);
+    expect(result).toEqual([
+      JSON.parse(`"Invalid path expression near attempt to iterate through [{\\"a\\":1}]"`),
+    ]);
   });
 
   // line 1294: try ((map(select(.a == 1))[].a) |= .+1) catch .
   test(`try ((map(select(.a == 1))[].a) |= .+1) catch . | [{"a":0},{"a":1}]`, () => {
     const input = JSON.parse(`[{"a":0},{"a":1}]`);
     const result = jq(`try ((map(select(.a == 1))[].a) |= .+1) catch .`, input);
-    expect(result).toEqual([JSON.parse(`"Invalid path expression near attempt to iterate through [{\\"a\\":1}]"`)]);
+    expect(result).toEqual([
+      JSON.parse(`"Invalid path expression near attempt to iterate through [{\\"a\\":1}]"`),
+    ]);
   });
 
   // line 1298: def x: .[1,2]; x=10
@@ -309,14 +358,18 @@ describe('jq official: paths', () => {
 
   // line 1314: [.[] | if .foo then "yep" else "nope" end]
   test(`[.[] | if .foo then "yep" else "nope" end] | [{"foo":0},{"foo":1},{"foo":[]},{"foo":true},{"foo":false},{"foo":null},{"foo":"foo"},{}]`, () => {
-    const input = JSON.parse(`[{"foo":0},{"foo":1},{"foo":[]},{"foo":true},{"foo":false},{"foo":null},{"foo":"foo"},{}]`);
+    const input = JSON.parse(
+      `[{"foo":0},{"foo":1},{"foo":[]},{"foo":true},{"foo":false},{"foo":null},{"foo":"foo"},{}]`,
+    );
     const result = jq(`[.[] | if .foo then "yep" else "nope" end]`, input);
     expect(result).toEqual([JSON.parse(`["yep","yep","yep","yep","nope","nope","yep","nope"]`)]);
   });
 
   // line 1318: [.[] | if .baz then "strange" elif .foo then "yep" else "nope" end]
   test(`[.[] | if .baz then "strange" elif .foo then "yep" else "nope" end] | [{"foo":0},{"foo":1},{"foo":[]},{"foo":true},{"foo":false},{"foo":null},{"foo":"foo"},{}]`, () => {
-    const input = JSON.parse(`[{"foo":0},{"foo":1},{"foo":[]},{"foo":true},{"foo":false},{"foo":null},{"foo":"foo"},{}]`);
+    const input = JSON.parse(
+      `[{"foo":0},{"foo":1},{"foo":[]},{"foo":true},{"foo":false},{"foo":null},{"foo":"foo"},{}]`,
+    );
     const result = jq(`[.[] | if .baz then "strange" elif .foo then "yep" else "nope" end]`, input);
     expect(result).toEqual([JSON.parse(`["yep","yep","yep","yep","nope","nope","yep","nope"]`)]);
   });
@@ -407,7 +460,9 @@ describe('jq official: paths', () => {
 
   // line 1370: [.[] | [.foo[] // .bar]]
   test(`[.[] | [.foo[] // .bar]] | [{"foo":[1,2], "bar": 42}, {"foo":[1], "bar": null}, {"foo":[null,false,3], "bar": 18}, {"foo":[], "bar":42}, {"foo": [null,false,null], "bar": 41}]`, () => {
-    const input = JSON.parse(`[{"foo":[1,2], "bar": 42}, {"foo":[1], "bar": null}, {"foo":[null,false,3], "bar": 18}, {"foo":[], "bar":42}, {"foo": [null,false,null], "bar": 41}]`);
+    const input = JSON.parse(
+      `[{"foo":[1,2], "bar": 42}, {"foo":[1], "bar": null}, {"foo":[null,false,3], "bar": 18}, {"foo":[], "bar":42}, {"foo": [null,false,null], "bar": 41}]`,
+    );
     const result = jq(`[.[] | [.foo[] // .bar]]`, input);
     expect(result).toEqual([JSON.parse(`[[1,2], [1], [3], [42], [41]]`)]);
   });
@@ -423,7 +478,12 @@ describe('jq official: paths', () => {
   test(`.[] | [.[0] and .[1], .[0] or .[1]] | [[true,[]], [false,1], [42,null], [null,false]]`, () => {
     const input = JSON.parse(`[[true,[]], [false,1], [42,null], [null,false]]`);
     const result = jq(`.[] | [.[0] and .[1], .[0] or .[1]]`, input);
-    expect(result).toEqual([JSON.parse(`[true,true]`), JSON.parse(`[false,true]`), JSON.parse(`[false,true]`), JSON.parse(`[false,false]`)]);
+    expect(result).toEqual([
+      JSON.parse(`[true,true]`),
+      JSON.parse(`[false,true]`),
+      JSON.parse(`[false,true]`),
+      JSON.parse(`[false,false]`),
+    ]);
   });
 
   // line 1385: [.[] | not]
@@ -458,7 +518,11 @@ describe('jq official: paths', () => {
   test(`try fromjson catch . | "{'a': 123}"`, () => {
     const input = JSON.parse(`"{'a': 123}"`);
     const result = jq(`try fromjson catch .`, input);
-    expect(result).toEqual([JSON.parse(`"Invalid string literal; expected \\", but got ' at line 1, column 5 (while parsing '{'a': 123}')"`)]);
+    expect(result).toEqual([
+      JSON.parse(
+        `"Invalid string literal; expected \\", but got ' at line 1, column 5 (while parsing '{'a': 123}')"`,
+      ),
+    ]);
   });
 
   // line 2524: try ["OK", setpath([[1]]; 1)] catch ["KO", .]
@@ -467,5 +531,4 @@ describe('jq official: paths', () => {
     const result = jq(`try ["OK", setpath([[1]]; 1)] catch ["KO", .]`, input);
     expect(result).toEqual([JSON.parse(`["KO","Cannot update field at array index of array"]`)]);
   });
-
 });
