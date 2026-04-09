@@ -22,6 +22,7 @@ function extendEnv(parent: Env): Env {
 }
 
 class BreakSignal {
+  results: JsonValue[] | undefined;
   constructor(public label: string) {}
 }
 
@@ -106,7 +107,22 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
     case "pipe": {
       const leftFn = compile(node.left, env);
       const rightFn = compile(node.right, env);
-      return (input) => leftFn(input).flatMap(rightFn);
+      return (input) => {
+        const leftResults = leftFn(input);
+        const results: JsonValue[] = [];
+        for (const l of leftResults) {
+          try {
+            results.push(...rightFn(l));
+          } catch (e) {
+            if (e instanceof BreakSignal) {
+              e.results = results;
+              throw e;
+            }
+            throw e;
+          }
+        }
+        return results;
+      };
     }
 
     case "comma": {
@@ -164,15 +180,29 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
         cond: compile(e.condition, env),
         then: compile(e.then, env),
       }));
-      const elseFn = node.else_ ? compile(node.else_) : null;
+      const elseFn = node.else_ ? compile(node.else_, env) : null;
       return (input) => {
-        const condResult = condFn(input);
-        if (isTruthy(condResult[0])) return thenFn(input);
-        for (const elif of elifFns) {
-          const elifResult = elif.cond(input);
-          if (isTruthy(elifResult[0])) return elif.then(input);
+        const condResults = condFn(input);
+        const results: JsonValue[] = [];
+        for (const cond of condResults) {
+          if (isTruthy(cond)) {
+            results.push(...thenFn(input));
+          } else {
+            let handled = false;
+            for (const elif of elifFns) {
+              const elifResult = elif.cond(input);
+              if (isTruthy(elifResult[0])) {
+                results.push(...elif.then(input));
+                handled = true;
+                break;
+              }
+            }
+            if (!handled) {
+              results.push(...(elseFn ? elseFn(input) : [input]));
+            }
+          }
         }
-        return elseFn ? elseFn(input) : [input];
+        return results;
       };
     }
 
@@ -443,7 +473,7 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
           return bodyFn(input);
         } catch (e) {
           if (e instanceof BreakSignal && e.label === node.name) {
-            return [];
+            return e.results ?? [];
           }
           throw e;
         }
@@ -481,7 +511,8 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
             if (op === "//=")
               return oldVal !== null && oldVal !== false ? oldVal : (bodyFn(input)[0] ?? null);
             const arithOp = op.slice(0, -1); // '+=' -> '+', etc.
-            const newVal = bodyFn(oldVal)[0] ?? null;
+            // For +=, -=, etc., evaluate the RHS with the original input, not the old value
+            const newVal = bodyFn(input)[0] ?? null;
             return applyArith(arithOp, oldVal, newVal);
           }),
         ];
@@ -521,45 +552,108 @@ function updatePathInner(
 
     case "field": {
       if (root === null) {
-        // Auto-create object from null
-        return { [node.name]: updater(null) };
+        const val = updater(null);
+        if (val === (REMOVE_SENTINEL as unknown)) return null;
+        return { [node.name]: val };
       }
       if (typeof root !== "object" || Array.isArray(root)) {
         throw new JqRuntimeError(`Cannot index ${jqType(root)} with string "${node.name}"`);
       }
       const obj = { ...root };
-      obj[node.name] = updater(obj[node.name] ?? null);
+      const val = updater(obj[node.name] ?? null);
+      if (val === (REMOVE_SENTINEL as unknown)) {
+        delete obj[node.name];
+      } else {
+        obj[node.name] = val;
+      }
       return obj;
     }
 
     case "index": {
       const idxFn = compile(node.index, env);
-      const idx = idxFn(root)[0];
-      if (typeof idx === "number") {
-        if (root === null) root = [];
-        if (!Array.isArray(root))
-          throw new JqRuntimeError(`Cannot index ${jqType(root)} with number`);
-        if (idx < 0) {
-          const i = root.length + idx;
-          if (i < 0) throw new JqRuntimeError("Out of bounds negative array index");
+      const indices = idxFn(root);
+      if (indices.length <= 1) {
+        // Single index: apply directly
+        const idx = indices[0];
+        if (idx === undefined) return root;
+        if (typeof idx === "number") {
+          if (root === null) root = [];
+          if (!Array.isArray(root))
+            throw new JqRuntimeError(`Cannot index ${jqType(root)} with number`);
+          if (isNaN(idx)) return root;
+          if (idx < 0) {
+            const i = root.length + idx;
+            if (i < 0) throw new JqRuntimeError("Out of bounds negative array index");
+            const arr = [...root];
+            const val = updater(arr[i] ?? null);
+            if (val === (REMOVE_SENTINEL as unknown)) {
+              arr.splice(i, 1);
+            } else {
+              arr[i] = val;
+            }
+            return arr;
+          }
+          if (idx > 536870911) throw new JqRuntimeError("Array index too large");
           const arr = [...root];
-          arr[i] = updater(arr[i] ?? null);
+          while (arr.length <= idx) arr.push(null);
+          const val = updater(arr[idx] ?? null);
+          if (val === (REMOVE_SENTINEL as unknown)) {
+            arr.splice(idx, 1);
+          } else {
+            arr[idx] = val;
+          }
           return arr;
         }
-        if (idx > 536870911) throw new JqRuntimeError("Array index too large");
+        if (
+          typeof idx === "string" &&
+          root !== null &&
+          typeof root === "object" &&
+          !Array.isArray(root)
+        ) {
+          const obj = { ...root };
+          const val = updater(obj[idx] ?? null);
+          if (val === (REMOVE_SENTINEL as unknown)) {
+            delete obj[idx];
+          } else {
+            obj[idx] = val;
+          }
+          return obj;
+        }
+        throw new JqRuntimeError(`Cannot index ${jqType(root)}`);
+      }
+
+      // Multiple indices: apply all, collect REMOVE_SENTINEL markers
+      // First pass: apply updater to each index on the ORIGINAL array
+      if (Array.isArray(root)) {
         const arr = [...root];
-        while (arr.length <= idx) arr.push(null);
-        arr[idx] = updater(arr[idx] ?? null);
+        const toRemove = new Set<number>();
+        for (const idx of indices) {
+          if (typeof idx !== "number" || isNaN(idx)) continue;
+          const i = idx < 0 ? arr.length + idx : idx;
+          if (i < 0) throw new JqRuntimeError("Out of bounds negative array index");
+          const val = updater(arr[i] ?? null);
+          if (val === (REMOVE_SENTINEL as unknown)) {
+            toRemove.add(i);
+          } else {
+            arr[i] = val;
+          }
+        }
+        if (toRemove.size > 0) {
+          return arr.filter((_, i) => !toRemove.has(i));
+        }
         return arr;
       }
-      if (
-        typeof idx === "string" &&
-        root !== null &&
-        typeof root === "object" &&
-        !Array.isArray(root)
-      ) {
+      if (root !== null && typeof root === "object") {
         const obj = { ...root };
-        obj[idx] = updater(obj[idx] ?? null);
+        for (const idx of indices) {
+          if (typeof idx !== "string") continue;
+          const val = updater(obj[idx] ?? null);
+          if (val === (REMOVE_SENTINEL as unknown)) {
+            delete obj[idx];
+          } else {
+            obj[idx] = val;
+          }
+        }
         return obj;
       }
       throw new JqRuntimeError(`Cannot index ${jqType(root)}`);
@@ -634,7 +728,9 @@ function updatePathInner(
       const arr = [...root];
       const sliced = arr.slice(f, t);
       const updated = updater(sliced);
-      if (Array.isArray(updated)) {
+      if (updated === (REMOVE_SENTINEL as unknown)) {
+        arr.splice(f, t - f);
+      } else if (Array.isArray(updated)) {
         arr.splice(f, t - f, ...updated);
       }
       return arr;
@@ -650,9 +746,32 @@ function updatePathInner(
             return isTruthy(condResult[0]) ? updater(item) : item;
           });
         }
+        // For non-array root, check condition on the root itself
+        const condResult = condFn(root);
+        if (condResult.length > 0 && isTruthy(condResult[0])) {
+          return updater(root);
+        }
+        return root; // condition not met, don't update
       }
-      // For other function calls, fall through to default behavior
-      return updater(compile(node, env)(root)[0] ?? null);
+      // Check for user-defined function that might be a path expression
+      const userFunc = env.funcs.get(node.name);
+      if (userFunc) {
+        // Expand the user-defined function body and use it as a path
+        const funcEnv = extendEnv(userFunc.closure);
+        for (let i = 0; i < userFunc.params.length; i++) {
+          const paramName = userFunc.params[i]!;
+          const argNode = node.args[i];
+          if (argNode) {
+            funcEnv.funcs.set(paramName, { params: [], body: argNode, closure: env });
+          }
+        }
+        return updatePathInner(root, userFunc.body, funcEnv, updater);
+      }
+      // For other function calls, check if it's a valid path expression
+      // map, sort, reverse, etc. are NOT valid path expressions
+      const output = compile(node, env)(root);
+      const outputStr = JSON.stringify(output.length === 1 ? output[0] : output);
+      throw new JqRuntimeError(`Invalid path expression with result ${outputStr}`);
     }
 
     default:
@@ -1234,9 +1353,8 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
 
     case "first": {
       if (args.length === 1) {
-        const fn = compile(args[0]!, env);
         return (input) => {
-          const results = fn(input);
+          const results = limitedEval(args[0]!, env, input, 1);
           return results.length > 0 ? [results[0]!] : [];
         };
       }
@@ -1265,11 +1383,16 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
     case "limit": {
       if (args.length !== 2) throw new JqRuntimeError("limit/2 requires 2 arguments");
       const nFn = compile(args[0]!, env);
-      const exprFn = compile(args[1]!, env);
       return (input) => {
-        const ns = nFn(input);
-        const n = ns[0] as number;
-        return exprFn(input).slice(0, n);
+        const allResults: JsonValue[] = [];
+        for (const nVal of nFn(input)) {
+          const n = nVal as number;
+          if (n < 0) throw new JqRuntimeError("limit doesn't support negative count");
+          if (n === 0) continue;
+          const results = limitedEval(args[1]!, env, input, n);
+          allResults.push(...results);
+        }
+        return allResults;
       };
     }
 
@@ -1283,12 +1406,16 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       }
       if (args.length === 2) {
         const nFn = compile(args[0]!, env);
-        const exprFn = compile(args[1]!, env);
         return (input) => {
-          const ns = nFn(input);
-          const n = ns[0] as number;
-          const results = exprFn(input);
-          return n < results.length ? [results[n]!] : [];
+          const allResults: JsonValue[] = [];
+          for (const nVal of nFn(input)) {
+            const n = nVal as number;
+            if (n < 0) throw new JqRuntimeError("nth doesn't support negative indices");
+            // Need n+1 results to get the nth (0-indexed)
+            const results = limitedEval(args[1]!, env, input, n + 1);
+            if (n < results.length) allResults.push(results[n]!);
+          }
+          return allResults;
         };
       }
       throw new JqRuntimeError("nth requires 1-2 arguments");
@@ -1765,7 +1892,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         pathFn(input).flatMap((p) =>
           valFn(input).map((v) => {
             if (!Array.isArray(p)) throw new JqRuntimeError("Path must be an array");
-            return setPath(input, p, v);
+            return setPathChecked(input, p, v);
           }),
         );
     }
@@ -1776,10 +1903,21 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       return (input) =>
         pathsFn(input).map((paths) => {
           if (!Array.isArray(paths))
-            throw new JqRuntimeError("delpaths argument must be an array of paths");
+            throw new JqRuntimeError("Paths must be specified as an array");
           let result = input;
-          // Delete in reverse order of path length to avoid index shifting
-          const sorted = [...(paths as JsonValue[][])].sort((a, b) => b.length - a.length);
+          // Sort by path, deeper paths first, then by index descending for same-depth
+          const sorted = [...(paths as JsonValue[][])].sort((a, b) => {
+            // First by length descending (deeper paths first)
+            if (a.length !== b.length) return b.length - a.length;
+            // Then compare elements to sort indices descending
+            for (let i = 0; i < a.length; i++) {
+              if (typeof a[i] === "number" && typeof b[i] === "number") {
+                if ((a[i] as number) !== (b[i] as number))
+                  return (b[i] as number) - (a[i] as number);
+              }
+            }
+            return 0;
+          });
           for (const p of sorted) {
             result = delPath(result, p);
           }
@@ -1789,13 +1927,116 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
 
     case "path": {
       if (args.length !== 1) throw new JqRuntimeError("path/1 requires 1 argument");
-      // path(expr) returns the paths to each output of expr
-      // This is a simplified implementation
-      const exprFn = compile(args[0]!, env);
       return (input) => {
         const paths: JsonValue[] = [];
-        collectPaths(input, args[0]!, paths);
+        collectPaths(input, args[0]!, paths, env);
         return paths;
+      };
+    }
+
+    case "paths": {
+      if (args.length === 0) {
+        // paths with no args: all paths (excluding root)
+        return (input) => {
+          const paths: JsonValue[][] = [];
+          const walk = (v: JsonValue, path: JsonValue[]) => {
+            if (path.length > 0) paths.push(path);
+            if (Array.isArray(v)) {
+              v.forEach((item, i) => walk(item, [...path, i]));
+            } else if (v !== null && typeof v === "object") {
+              for (const [k, val] of Object.entries(v)) walk(val, [...path, k]);
+            }
+          };
+          walk(input, []);
+          return paths;
+        };
+      }
+      // paths(filter) - all paths where filter is truthy on the node
+      const filterFn = compile(args[0]!, env);
+      return (input) => {
+        const paths: JsonValue[][] = [];
+        const walk = (v: JsonValue, path: JsonValue[]) => {
+          try {
+            const result = filterFn(v);
+            if (result.length > 0 && isTruthy(result[0])) {
+              paths.push(path);
+            }
+          } catch {
+            // skip on error
+          }
+          if (Array.isArray(v)) {
+            v.forEach((item, i) => walk(item, [...path, i]));
+          } else if (v !== null && typeof v === "object") {
+            for (const [k, val] of Object.entries(v)) walk(val, [...path, k]);
+          }
+        };
+        walk(input, []);
+        return paths;
+      };
+    }
+
+    case "del": {
+      if (args.length !== 1) throw new JqRuntimeError("del/1 requires 1 argument");
+      return (input) => {
+        // del(.) returns null
+        if (args[0]!.kind === "identity") return [null];
+        // del(empty) is a no-op
+        if (args[0]!.kind === "func" && (args[0] as any).name === "empty") return [input];
+        // Collect all deletion paths from the ORIGINAL input
+        const paths: JsonValue[][] = [];
+        collectDelPaths(input, args[0]!, paths, env);
+        if (paths.length === 0) return [input];
+        // Sort paths: deeper first, then by index descending for same prefix
+        const sorted = paths.sort((a, b) => {
+          const minLen = Math.min(a.length, b.length);
+          for (let i = 0; i < minLen; i++) {
+            if (typeof a[i] === "number" && typeof b[i] === "number") {
+              if ((a[i] as number) !== (b[i] as number)) return (b[i] as number) - (a[i] as number);
+            } else if (a[i] !== b[i]) {
+              return String(b[i]!) > String(a[i]!) ? 1 : -1;
+            }
+          }
+          return b.length - a.length;
+        });
+        let result = input;
+        for (const p of sorted) {
+          result = delPath(result, p);
+        }
+        return [result];
+      };
+    }
+
+    case "pick": {
+      if (args.length !== 1) throw new JqRuntimeError("pick/1 requires 1 argument");
+      return (input) => {
+        const paths: JsonValue[] = [];
+        collectPaths(input, args[0]!, paths, env);
+        let result: JsonValue = null;
+        for (const p of paths as JsonValue[][]) {
+          const val = getPath(input, p);
+          result = setPath(result, p, val);
+        }
+        return [result];
+      };
+    }
+
+    case "skip": {
+      if (args.length !== 2) throw new JqRuntimeError("skip/2 requires 2 arguments");
+      const nFn = compile(args[0]!, env);
+      const exprFn = compile(args[1]!, env);
+      return (input) => {
+        const allResults: JsonValue[] = [];
+        for (const nVal of nFn(input)) {
+          const n = nVal as number;
+          if (n < 0) throw new JqRuntimeError("skip doesn't support negative count");
+          try {
+            const results = exprFn(input);
+            allResults.push(...results.slice(n));
+          } catch {
+            // on error, no results
+          }
+        }
+        return allResults;
       };
     }
 
@@ -1822,6 +2063,36 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       return (input) => {
         if (typeof input === "number") return [Math.abs(input)];
         throw new JqRuntimeError(`Cannot take abs of ${jqType(input)}`);
+      };
+
+    case "nan":
+      return () => [NaN];
+
+    case "infinite":
+      return () => [Infinity];
+
+    case "isnan":
+      return (input) => {
+        if (typeof input === "number") return [isNaN(input)];
+        return [false];
+      };
+
+    case "isinfinite":
+      return (input) => {
+        if (typeof input === "number") return [!isFinite(input) && !isNaN(input)];
+        return [false];
+      };
+
+    case "isfinite":
+      return (input) => {
+        if (typeof input === "number") return [isFinite(input)];
+        return [false];
+      };
+
+    case "isnormal":
+      return (input) => {
+        if (typeof input === "number") return [isFinite(input) && input !== 0];
+        return [false];
       };
 
     case "env":
@@ -2295,7 +2566,7 @@ function applyArith(op: string, l: JsonValue, r: JsonValue): JsonValue {
       return l / r;
     case "%":
       if (r === 0) throw new JqRuntimeError("Modulo by zero");
-      return l % r;
+      return l % r || 0; // normalize -0 to 0
     default:
       throw new JqRuntimeError(`Unknown operator: ${op}`);
   }
@@ -2403,6 +2674,37 @@ function getPath(value: JsonValue, path: JsonValue[]): JsonValue {
   return current;
 }
 
+function setPathChecked(value: JsonValue, path: JsonValue[], newVal: JsonValue): JsonValue {
+  if (path.length === 0) return newVal;
+  const key = path[0]!;
+  const rest = path.slice(1);
+  if (typeof key === "string") {
+    if (Array.isArray(value)) {
+      throw new JqRuntimeError(`Cannot update field at array index of array`);
+    }
+    const obj =
+      value !== null && typeof value === "object"
+        ? { ...value }
+        : ({} as Record<string, JsonValue>);
+    obj[key] = setPathChecked(obj[key] ?? null, rest, newVal);
+    return obj;
+  }
+  if (typeof key === "number") {
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      throw new JqRuntimeError(`Cannot index object with number (${key})`);
+    }
+    const arr = Array.isArray(value) ? [...value] : [];
+    const idx = key < 0 ? arr.length + key : key;
+    while (arr.length <= idx) arr.push(null);
+    arr[idx] = setPathChecked(arr[idx] ?? null, rest, newVal);
+    return arr;
+  }
+  if (Array.isArray(key)) {
+    throw new JqRuntimeError(`Cannot update field at array index of array`);
+  }
+  throw new JqRuntimeError(`Invalid path key type: ${jqType(key)}`);
+}
+
 function setPath(value: JsonValue, path: JsonValue[], newVal: JsonValue): JsonValue {
   if (path.length === 0) return newVal;
   const key = path[0]!;
@@ -2418,6 +2720,7 @@ function setPath(value: JsonValue, path: JsonValue[], newVal: JsonValue): JsonVa
   if (typeof key === "number") {
     const arr = Array.isArray(value) ? [...value] : [];
     const idx = key < 0 ? arr.length + key : key;
+    if (idx < 0) throw new JqRuntimeError("Out of bounds negative array index");
     while (arr.length <= idx) arr.push(null);
     arr[idx] = setPath(arr[idx] ?? null, rest, newVal);
     return arr;
@@ -2440,8 +2743,10 @@ function delPath(value: JsonValue, path: JsonValue[]): JsonValue {
       return obj;
     }
     if (typeof key === "number" && Array.isArray(value)) {
+      if (isNaN(key)) return value; // NaN index is a no-op
       const arr = [...value];
       const idx = key < 0 ? arr.length + key : key;
+      if (idx < 0 || idx >= arr.length) return value; // out of bounds, no-op
       arr.splice(idx, 1);
       return arr;
     }
@@ -2468,49 +2773,339 @@ function delPath(value: JsonValue, path: JsonValue[]): JsonValue {
   return value;
 }
 
-function collectPaths(
-  value: JsonValue,
-  node: import("./ast.js").AstNode,
-  results: JsonValue[],
-): void {
-  // Simplified path collection - handles common cases
-  if (node.kind === "field") {
-    results.push([node.name]);
-  } else if (node.kind === "identity") {
-    results.push([]);
-  } else if (node.kind === "iterate") {
-    if (Array.isArray(value)) {
-      for (let i = 0; i < value.length; i++) results.push([i]);
-    } else if (value !== null && typeof value === "object") {
-      for (const k of Object.keys(value)) results.push([k]);
+class LimitReached {
+  constructor(public results: JsonValue[]) {}
+}
+
+function limitedEval(node: AstNode, env: Env, input: JsonValue, limit: number): JsonValue[] {
+  if (limit <= 0) return [];
+
+  if (node.kind === "comma") {
+    const leftResults = limitedEval(node.left, env, input, limit);
+    if (leftResults.length >= limit) return leftResults.slice(0, limit);
+    const rightResults = limitedEval(node.right, env, input, limit - leftResults.length);
+    return [...leftResults, ...rightResults];
+  }
+
+  if (node.kind === "pipe") {
+    const leftResults = limitedEval(node.left, env, input, Infinity);
+    const results: JsonValue[] = [];
+    for (const l of leftResults) {
+      const remaining = limit - results.length;
+      if (remaining <= 0) break;
+      const rightResults = limitedEval(node.right, env, l, remaining);
+      results.push(...rightResults);
     }
-  } else if (node.kind === "recurse") {
-    const walk = (v: JsonValue, path: JsonValue[]) => {
-      results.push(path);
-      if (Array.isArray(v)) {
-        v.forEach((item, i) => walk(item, [...path, i]));
-      } else if (v !== null && typeof v === "object") {
-        for (const [k, val] of Object.entries(v)) walk(val, [...path, k]);
+    return results.slice(0, limit);
+  }
+
+  try {
+    const results = compile(node, env)(input);
+    return results.slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+function collectDelPaths(value: JsonValue, node: AstNode, results: JsonValue[][], env: Env): void {
+  switch (node.kind) {
+    case "comma":
+      collectDelPaths(value, node.left, results, env);
+      collectDelPaths(value, node.right, results, env);
+      return;
+    case "pipe": {
+      const leftPaths: JsonValue[][] = [];
+      collectDelPaths(value, node.left, leftPaths, env);
+      for (const lp of leftPaths) {
+        const subVal = getPath(value, lp);
+        const rightPaths: JsonValue[][] = [];
+        collectDelPaths(subVal, node.right, rightPaths, env);
+        for (const rp of rightPaths) {
+          results.push([...lp, ...rp]);
+        }
       }
-    };
-    walk(value, []);
-  } else if (node.kind === "pipe") {
-    // For a.b — collect paths by walking the pipe chain
+      return;
+    }
+    case "slice": {
+      // Expand slice into individual indices
+      if (!Array.isArray(value)) return;
+      const len = value.length;
+      const from = node.from ? ((compile(node.from, env)(value)[0] as number) ?? 0) : 0;
+      const to = node.to ? ((compile(node.to, env)(value)[0] as number) ?? len) : len;
+      const f = normalizeIndex(from, len);
+      const t = normalizeIndex(to, len);
+      for (let i = f; i < t; i++) {
+        results.push([i]);
+      }
+      return;
+    }
+    case "identity":
+    case "field":
+    case "index":
+    case "iterate":
+    case "recurse":
+    case "optional":
+    case "func":
+      collectPaths(value, node, results as JsonValue[], env);
+      return;
+    default:
+      collectPaths(value, node, results as JsonValue[], env);
+      return;
+  }
+}
+
+function delByExpr(input: JsonValue, node: AstNode, env: Env): JsonValue {
+  // For comma nodes, apply left then right
+  if (node.kind === "comma") {
+    let result = delByExpr(input, node.left, env);
+    result = delByExpr(result, node.right, env);
+    return result;
+  }
+  // For pipe nodes like (.foo,.bar,.baz) | .[2,3,0]
+  // We need to walk the path and delete
+  // Try to collect paths first
+  const paths: JsonValue[] = [];
+  let hasSlice = false;
+  try {
+    collectPathsOrSlices(input, node, paths, env, () => {
+      hasSlice = true;
+    });
+  } catch {
+    // Fall back to updatePaths
+    return updatePaths(input, node, env, () => REMOVE_SENTINEL as unknown as JsonValue);
+  }
+
+  if (hasSlice) {
+    // If there are slices, use updatePaths approach
+    return updatePaths(input, node, env, () => REMOVE_SENTINEL as unknown as JsonValue);
+  }
+
+  if (paths.length === 0) return input;
+
+  // Sort paths: deeper first, then by index descending for same prefix
+  const sorted = [...(paths as JsonValue[][])].sort((a, b) => {
+    const minLen = Math.min(a.length, b.length);
+    for (let i = 0; i < minLen; i++) {
+      if (typeof a[i] === "number" && typeof b[i] === "number") {
+        if ((a[i] as number) !== (b[i] as number)) return (b[i] as number) - (a[i] as number);
+      } else if (a[i] !== b[i]) {
+        return String(b[i]!) > String(a[i]!) ? 1 : -1;
+      }
+    }
+    return b.length - a.length;
+  });
+
+  let result = input;
+  for (const p of sorted) {
+    result = delPath(result, p);
+  }
+  return result;
+}
+
+function collectPathsOrSlices(
+  value: JsonValue,
+  node: AstNode,
+  results: JsonValue[],
+  env: Env,
+  onSlice: () => void,
+): void {
+  if (node.kind === "slice") {
+    onSlice();
+    return;
+  }
+  if (node.kind === "comma") {
+    collectPathsOrSlices(value, node.left, results, env, onSlice);
+    collectPathsOrSlices(value, node.right, results, env, onSlice);
+    return;
+  }
+  if (node.kind === "pipe") {
+    // Check if the right side contains a slice
+    let rightHasSlice = false;
     const leftPaths: JsonValue[] = [];
-    collectPaths(value, node.left, leftPaths);
+    collectPathsOrSlices(value, node.left, leftPaths, env, () => {
+      rightHasSlice = true;
+    });
+    if (rightHasSlice) {
+      onSlice();
+      return;
+    }
     for (const lp of leftPaths) {
       const subVal = getPath(value, lp as JsonValue[]);
       const rightPaths: JsonValue[] = [];
-      collectPaths(subVal, node.right, rightPaths);
+      collectPathsOrSlices(subVal, node.right, rightPaths, env, () => {
+        rightHasSlice = true;
+      });
+      if (rightHasSlice) {
+        onSlice();
+        return;
+      }
       for (const rp of rightPaths) {
         results.push([...(lp as JsonValue[]), ...(rp as JsonValue[])]);
       }
     }
-  } else if (node.kind === "optional") {
-    try {
-      collectPaths(value, node.expr, results);
-    } catch {
-      // optional — ignore errors
+    return;
+  }
+  // Delegate to regular collectPaths
+  collectPaths(value, node, results, env);
+}
+
+function describePathNode(node: AstNode): { kind: string; detail?: string } | null {
+  if (node.kind === "field") return { kind: "access", detail: `"${node.name}"` };
+  if (node.kind === "index") {
+    if (node.index.kind === "literal") return { kind: "access", detail: String(node.index.value) };
+    return { kind: "access" };
+  }
+  if (node.kind === "iterate") return { kind: "iterate" };
+  if (node.kind === "pipe") {
+    // For .[0] which is pipe(identity, index(0)), look at the right side
+    if (node.left.kind === "identity") return describePathNode(node.right);
+    return describePathNode(node.left);
+  }
+  return null;
+}
+
+function throwInvalidPathNear(node: AstNode, value: JsonValue): never {
+  const valStr = JSON.stringify(value);
+  const desc = describePathNode(node);
+  if (desc) {
+    if (desc.kind === "iterate") {
+      throw new JqRuntimeError(`Invalid path expression near attempt to iterate through ${valStr}`);
+    }
+    if (desc.kind === "access" && desc.detail) {
+      throw new JqRuntimeError(
+        `Invalid path expression near attempt to access element ${desc.detail} of ${valStr}`,
+      );
+    }
+    throw new JqRuntimeError(`Invalid path expression near attempt to access element of ${valStr}`);
+  }
+  throw new JqRuntimeError(`Invalid path expression with result ${valStr}`);
+}
+
+function collectPaths(
+  value: JsonValue,
+  node: import("./ast.js").AstNode,
+  results: JsonValue[],
+  env: Env = emptyEnv(),
+): void {
+  switch (node.kind) {
+    case "identity":
+      results.push([]);
+      return;
+    case "field":
+      results.push([node.name]);
+      return;
+    case "index": {
+      const idxResults = compile(node.index, env)(value);
+      for (const idx of idxResults) {
+        // Resolve negative indices for arrays
+        if (typeof idx === "number" && idx < 0 && Array.isArray(value)) {
+          results.push([value.length + idx]);
+        } else {
+          results.push([idx]);
+        }
+      }
+      return;
+    }
+    case "iterate":
+      if (Array.isArray(value)) {
+        for (let i = 0; i < value.length; i++) results.push([i]);
+      } else if (value !== null && typeof value === "object") {
+        for (const k of Object.keys(value)) results.push([k]);
+      }
+      return;
+    case "recurse": {
+      const walk = (v: JsonValue, path: JsonValue[]) => {
+        results.push(path);
+        if (Array.isArray(v)) {
+          v.forEach((item, i) => walk(item, [...path, i]));
+        } else if (v !== null && typeof v === "object") {
+          for (const [k, val] of Object.entries(v)) walk(val, [...path, k]);
+        }
+      };
+      walk(value, []);
+      return;
+    }
+    case "pipe": {
+      let leftPaths: JsonValue[];
+      try {
+        leftPaths = [];
+        collectPaths(value, node.left, leftPaths, env);
+      } catch (e) {
+        // Left side is not a valid path expression — evaluate it, then check right side
+        const leftResult = compile(node.left, env)(value);
+        if (leftResult.length === 1) {
+          const lv = leftResult[0]!;
+          throwInvalidPathNear(node.right, lv);
+        }
+        throw e;
+      }
+      for (const lp of leftPaths) {
+        const subVal = getPath(value, lp as JsonValue[]);
+        const rightPaths: JsonValue[] = [];
+        collectPaths(subVal, node.right, rightPaths, env);
+        for (const rp of rightPaths) {
+          results.push([...(lp as JsonValue[]), ...(rp as JsonValue[])]);
+        }
+      }
+      return;
+    }
+    case "comma": {
+      collectPaths(value, node.left, results, env);
+      collectPaths(value, node.right, results, env);
+      return;
+    }
+    case "optional": {
+      try {
+        collectPaths(value, node.expr, results, env);
+      } catch {
+        // optional — ignore errors
+      }
+      return;
+    }
+    case "func": {
+      if (node.name === "select" && node.args.length === 1) {
+        // select(cond) in path context — keep current path if condition passes
+        const condFn = compile(node.args[0]!, env);
+        const condResult = condFn(value);
+        if (condResult.length > 0 && isTruthy(condResult[0])) {
+          results.push([]);
+        }
+        return;
+      }
+      if (node.name === "recurse" && node.args.length === 0) {
+        const walk = (v: JsonValue, path: JsonValue[]) => {
+          results.push(path);
+          if (Array.isArray(v)) {
+            v.forEach((item, i) => walk(item, [...path, i]));
+          } else if (v !== null && typeof v === "object") {
+            for (const [k, val] of Object.entries(v)) walk(val, [...path, k]);
+          }
+        };
+        walk(value, []);
+        return;
+      }
+      if (node.name === "first" && node.args.length === 0) {
+        // first = .[0]
+        results.push([0]);
+        return;
+      }
+      if (node.name === "last" && node.args.length === 0) {
+        // last = .[-1] — uses negative index for path
+        results.push([-1]);
+        return;
+      }
+      // Other functions are not valid path expressions
+      const output = compile(node, env)(value);
+      const outputStr = JSON.stringify(output.length === 1 ? output[0] : output);
+      throw new JqRuntimeError(`Invalid path expression with result ${outputStr}`);
+    }
+    default: {
+      // Check if this is a complex expression that produces values navigated from input
+      // For expressions like path(.a[path(.b)[0]]), evaluate the expression
+      // and see if it navigates the input — but for non-path expressions, error
+      const output = compile(node, env)(value);
+      const outputStr = JSON.stringify(output.length === 1 ? output[0] : output);
+      throw new JqRuntimeError(`Invalid path expression with result ${outputStr}`);
     }
   }
 }
@@ -2881,6 +3476,10 @@ const BUILTIN_NAMES = [
   "getpath",
   "setpath",
   "delpaths",
+  "del",
+  "pick",
+  "skip",
+  "paths",
   "leaf_paths",
   "abs",
   "builtins",

@@ -55,14 +55,6 @@ class Parser {
       } else if (this.match(TokenType.Pipe)) {
         const right = this.parseComma();
         left = { kind: "pipe", left, right, pos: left.pos };
-      } else if (this.isUpdateOp()) {
-        const op = this.advance().value as "|=" | "+=" | "-=" | "*=" | "/=" | "%=" | "//=";
-        const body = this.parseComma();
-        left = { kind: "update", path: left, op, body, pos: left.pos };
-      } else if (this.peek().type === TokenType.Assign) {
-        this.advance();
-        const value = this.parseComma();
-        left = { kind: "assign", path: left, value, pos: left.pos };
       } else {
         break;
       }
@@ -150,12 +142,27 @@ class Parser {
     return { key, pattern };
   }
 
-  // comma = alternative ("," alternative)*
+  // comma = assign ("," assign)*
   private parseComma(): AstNode {
-    let left = this.parseAlternative();
+    let left = this.parseAssign();
     while (this.match(TokenType.Comma)) {
-      const right = this.parseAlternative();
+      const right = this.parseAssign();
       left = { kind: "comma", left, right, pos: left.pos };
+    }
+    return left;
+  }
+
+  // assign = alternative (update_op alternative | "=" alternative)?
+  private parseAssign(): AstNode {
+    let left = this.parseAlternative();
+    if (this.isUpdateOp()) {
+      const op = this.advance().value as "|=" | "+=" | "-=" | "*=" | "/=" | "%=" | "//=";
+      const body = this.parseAlternative();
+      left = { kind: "update", path: left, op, body, pos: left.pos };
+    } else if (this.peek().type === TokenType.Assign) {
+      this.advance();
+      const value = this.parseAlternative();
+      left = { kind: "assign", path: left, value, pos: left.pos };
     }
     return left;
   }
