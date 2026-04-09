@@ -49,12 +49,22 @@ class Parser {
     return left;
   }
 
-  // comma = logic ("," logic)*
+  // comma = alternative ("," alternative)*
   private parseComma(): AstNode {
-    let left = this.parseLogic();
+    let left = this.parseAlternative();
     while (this.match(TokenType.Comma)) {
-      const right = this.parseLogic();
+      const right = this.parseAlternative();
       left = { kind: 'comma', left, right, pos: left.pos };
+    }
+    return left;
+  }
+
+  // alternative = logic ("//" logic)*
+  private parseAlternative(): AstNode {
+    let left = this.parseLogic();
+    while (this.match(TokenType.Alternative)) {
+      const right = this.parseLogic();
+      left = { kind: 'alternative', left, right, pos: left.pos };
     }
     return left;
   }

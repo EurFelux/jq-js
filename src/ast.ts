@@ -19,6 +19,7 @@ export type AstNode =
   | RecurseNode
   | CommaNode
   | OptionalNode
+  | AlternativeNode
   | StringInterpolationNode;
 
 export interface IdentityNode {
@@ -154,6 +155,13 @@ export interface CommaNode {
 export interface OptionalNode {
   kind: 'optional';
   expr: AstNode;
+  pos: number;
+}
+
+export interface AlternativeNode {
+  kind: 'alternative';
+  left: AstNode;
+  right: AstNode;
   pos: number;
 }
 
