@@ -642,8 +642,40 @@ class Parser {
     }
 
     this.expect(TokenType.Colon);
-    const value = this.parseAlternative();
+    const value = this.parsePipeNoComma();
     return { key, value };
+  }
+
+  // Like parsePipe but does not consume commas at the top level.
+  // Needed for object values where commas separate entries.
+  private parsePipeNoComma(): AstNode {
+    let left = this.parseAlternative();
+    while (true) {
+      if (this.match(TokenType.As)) {
+        const pattern = this.parsePattern();
+        const alternativePatterns: import("./ast.js").BindingPattern[] = [];
+        while (this.match(TokenType.TryAlternative)) {
+          alternativePatterns.push(this.parsePattern());
+        }
+        this.expect(TokenType.Pipe);
+        const body = this.parsePipeNoComma();
+        left = { kind: "as", expr: left, pattern, alternativePatterns, body, pos: left.pos };
+      } else if (this.match(TokenType.Pipe)) {
+        const right = this.parseAlternative();
+        left = { kind: "pipe", left, right, pos: left.pos };
+      } else if (this.isUpdateOp()) {
+        const op = this.advance().value as "|=" | "+=" | "-=" | "*=" | "/=" | "%=" | "//=";
+        const body = this.parseAlternative();
+        left = { kind: "update", path: left, op, body, pos: left.pos };
+      } else if (this.peek().type === TokenType.Assign) {
+        this.advance();
+        const value = this.parseAlternative();
+        left = { kind: "assign", path: left, value, pos: left.pos };
+      } else {
+        break;
+      }
+    }
+    return left;
   }
 
   private parseCondition(): AstNode {

@@ -370,10 +370,37 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
     }
 
     case "format": {
+      if (node.str && node.str.kind === "string_interpolation") {
+        // @format "string interpolation" — apply format to interpolated parts, not literals
+        const compiledParts = node.str.parts.map((p) =>
+          typeof p === "string" ? p : compile(p, env),
+        );
+        return (input) => {
+          let results: string[] = [""];
+          for (const part of compiledParts) {
+            if (typeof part === "string") {
+              results = results.map((r) => r + part);
+            } else {
+              const values = part(input);
+              const newResults: string[] = [];
+              for (const r of results) {
+                for (const v of values) {
+                  // Apply format to each interpolated value
+                  const formatted = applyFormat(node.name, v, node.pos);
+                  newResults.push(
+                    r + (typeof formatted === "string" ? formatted : JSON.stringify(formatted)),
+                  );
+                }
+              }
+              results = newResults;
+            }
+          }
+          return results;
+        };
+      }
       const strFn = node.str ? compile(node.str, env) : null;
       return (input) => {
         if (strFn) {
-          // @format "string interpolation" — apply format to the interpolation result
           const strs = strFn(input);
           return strs.map((s) => applyFormat(node.name, s, node.pos));
         }
@@ -509,7 +536,8 @@ export function compile(node: AstNode, env: Env = emptyEnv()): Filter {
 
     case "def": {
       const newEnv = extendEnv(env);
-      newEnv.funcs.set(node.name, { params: node.params, body: node.body, closure: newEnv });
+      const funcKey = `${node.name}/${node.params.length}`;
+      newEnv.funcs.set(funcKey, { params: node.params, body: node.body, closure: newEnv });
       return compile(node.next, newEnv);
     }
 
@@ -872,8 +900,9 @@ function bindPatternImpl(
 }
 
 function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): Filter {
-  // Check user-defined functions first
-  const userFunc = env.funcs.get(name);
+  // Check user-defined functions first (arity-qualified lookup)
+  const funcKey = `${name}/${args.length}`;
+  const userFunc = env.funcs.get(funcKey);
   if (userFunc) {
     return (input) => {
       const funcEnv = extendEnv(userFunc.closure);
@@ -884,7 +913,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         if (argNode) {
           // Filter arguments: the argument is a filter, not a value
           // We need to compile it in the caller's env and bind as a function
-          funcEnv.funcs.set(paramName, { params: [], body: argNode, closure: env });
+          funcEnv.funcs.set(`${paramName}/0`, { params: [], body: argNode, closure: env });
         }
       }
       return compile(userFunc.body, funcEnv)(input);
@@ -915,9 +944,14 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
 
     case "values":
       return (input) => {
-        // Type selector: pass through non-null values, filter out null
-        if (input === null) return [];
-        return [input];
+        // When used with 0 args, `values` is a type selector: select non-null values
+        if (args.length === 0) {
+          if (input === null) return [];
+          return [input];
+        }
+        if (Array.isArray(input)) return [input];
+        if (input !== null && typeof input === "object") return [Object.values(input)];
+        throw new JqRuntimeError(`${jqType(input)} has no values`);
       };
 
     case "type":
@@ -989,22 +1023,26 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         };
       }
       if (args.length === 2) {
+        // any(generator; condition) — short-circuit on first true
+        const condFn = compile(args[1]!, env);
         return (input) => {
           let found = false;
-          generateValues(
-            args[0]!,
-            env,
-            input,
-            (v) => {
-              if (found) return;
-              try {
-                if (compile(args[1]!, env)(v).some(isTruthy)) found = true;
-              } catch {
-                /* skip errors */
-              }
-            },
-            () => {},
-          );
+          try {
+            generateValues(
+              args[0]!,
+              env,
+              input,
+              (v) => {
+                if (condFn(v).some(isTruthy)) {
+                  found = true;
+                  throw REMOVE_SENTINEL; // break out early
+                }
+              },
+              () => {},
+            );
+          } catch (e) {
+            if (e !== REMOVE_SENTINEL) throw e;
+          }
           return [found];
         };
       }
@@ -1023,22 +1061,26 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         };
       }
       if (args.length === 2) {
+        // all(generator; condition) — short-circuit on first false
+        const condFn = compile(args[1]!, env);
         return (input) => {
           let allTrue = true;
-          generateValues(
-            args[0]!,
-            env,
-            input,
-            (v) => {
-              if (!allTrue) return;
-              try {
-                if (!compile(args[1]!, env)(v).some(isTruthy)) allTrue = false;
-              } catch {
-                allTrue = false;
-              }
-            },
-            () => {},
-          );
+          try {
+            generateValues(
+              args[0]!,
+              env,
+              input,
+              (v) => {
+                if (!condFn(v).some(isTruthy)) {
+                  allTrue = false;
+                  throw REMOVE_SENTINEL; // break out early
+                }
+              },
+              () => {},
+            );
+          } catch (e) {
+            if (e !== REMOVE_SENTINEL) throw e;
+          }
           return [allTrue];
         };
       }
@@ -1231,7 +1273,16 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         if (!Array.isArray(input)) throw new JqRuntimeError(`Cannot join ${jqType(input)}`);
         return argFn(input).map((sep) => {
           if (typeof sep !== "string") throw new JqRuntimeError("join separator must be a string");
-          return input.map((v) => (v === null ? "" : String(v))).join(sep);
+          return input
+            .map((v) => {
+              if (v === null) return "";
+              if (typeof v === "string") return v;
+              if (typeof v === "number" || typeof v === "boolean") return String(v);
+              throw new JqRuntimeError(
+                `string or number expected, got ${jqType(v)} (${JSON.stringify(v)})`,
+              );
+            })
+            .join(sep);
         });
       };
     }
@@ -1323,15 +1374,17 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       const flagsFn = args.length > 2 ? compile(args[2]!, env) : null;
       return (input) => {
         if (typeof input !== "string") throw new JqRuntimeError(`Cannot sub ${jqType(input)}`);
-        return patternFn(input).map((pattern) => {
+        return patternFn(input).flatMap((pattern) => {
           const [re] = buildRegex(pattern, flagsFn ? (flagsFn(input)[0] ?? null) : null, "");
           const m = re.exec(input);
-          if (!m) return input;
+          if (!m) return [input];
           const matchObj = buildMatchObject(m);
-          const replacement = replFn(matchObj)[0];
-          const replStr =
-            typeof replacement === "string" ? replacement : JSON.stringify(replacement);
-          return input.slice(0, m.index) + replStr + input.slice(m.index + m[0]!.length);
+          const replacements = replFn(matchObj);
+          return replacements.map((replacement) => {
+            const replStr =
+              typeof replacement === "string" ? replacement : JSON.stringify(replacement);
+            return input.slice(0, m.index) + replStr + input.slice(m.index + m[0]!.length);
+          });
         });
       };
     }
@@ -1343,24 +1396,40 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       const flagsFn = args.length > 2 ? compile(args[2]!, env) : null;
       return (input) => {
         if (typeof input !== "string") throw new JqRuntimeError(`Cannot gsub ${jqType(input)}`);
-        return patternFn(input).map((pattern) => {
+        return patternFn(input).flatMap((pattern) => {
           const [re] = buildRegex(pattern, flagsFn ? (flagsFn(input)[0] ?? null) : null, "g");
-          let result = "";
-          let lastIndex = 0;
+          // Collect all matches first
+          const matches: RegExpExecArray[] = [];
           let m: RegExpExecArray | null;
-          while ((m = re.exec(input)) !== null) {
-            result += input.slice(lastIndex, m.index);
-            const matchObj = buildMatchObject(m);
-            const replacement = replFn(matchObj)[0];
-            result += typeof replacement === "string" ? replacement : JSON.stringify(replacement);
-            lastIndex = m.index + m[0]!.length;
+          const re2 = new RegExp(re.source, re.flags);
+          while ((m = re2.exec(input)) !== null) {
+            matches.push(m);
             if (m[0]!.length === 0) {
-              re.lastIndex++;
-              lastIndex = re.lastIndex;
+              re2.lastIndex++;
+              if (re2.lastIndex > input.length) break;
             }
           }
-          result += input.slice(lastIndex);
-          return result;
+          if (matches.length === 0) return [input];
+          // Determine number of replacement values from first match
+          const firstMatchObj = buildMatchObject(matches[0]!);
+          const replCount = replFn(firstMatchObj).length;
+          // For each replacement index, produce one output string
+          const results: JsonValue[] = [];
+          for (let ri = 0; ri < replCount; ri++) {
+            let result = "";
+            let lastIndex = 0;
+            for (const match of matches) {
+              result += input.slice(lastIndex, match.index);
+              const matchObj = buildMatchObject(match);
+              const replacements = replFn(matchObj);
+              const replacement = replacements[ri] ?? replacements[0];
+              result += typeof replacement === "string" ? replacement : JSON.stringify(replacement);
+              lastIndex = match.index + match[0]!.length;
+            }
+            result += input.slice(lastIndex);
+            results.push(result);
+          }
+          return results;
         });
       };
     }
@@ -1377,14 +1446,22 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
           let lastIndex = 0;
           let m: RegExpExecArray | null;
           while ((m = re.exec(input)) !== null) {
-            results.push(input.slice(lastIndex, m.index));
-            lastIndex = m.index + m[0]!.length;
             if (m[0]!.length === 0) {
-              re.lastIndex++;
-              lastIndex = re.lastIndex;
+              // Empty match: emit one character and advance
+              if (lastIndex < input.length) {
+                results.push(input[lastIndex]!);
+              }
+              lastIndex = m.index + 1;
+              re.lastIndex = lastIndex;
+              if (lastIndex > input.length) break;
+            } else {
+              results.push(input.slice(lastIndex, m.index));
+              lastIndex = m.index + m[0]!.length;
             }
           }
-          results.push(input.slice(lastIndex));
+          if (lastIndex <= input.length && !(re.source === "(?:)" || re.source === "")) {
+            results.push(input.slice(lastIndex));
+          }
         }
         return results;
       };
@@ -2347,15 +2424,6 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       throw new JqRuntimeError("IN requires 1 or 2 arguments");
     }
 
-    case "env":
-      return () => {
-        const result: Record<string, JsonValue> = {};
-        for (const [k, v] of Object.entries(process.env)) {
-          if (v !== undefined) result[k] = v;
-        }
-        return [result];
-      };
-
     // --- Date/time functions ---
 
     case "now":
@@ -2393,33 +2461,32 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       if (args.length !== 1) throw new JqRuntimeError("strftime requires 1 argument");
       const fmtFilter = compile(args[0]!, env);
       return (input) => {
-        if (typeof input !== "number")
-          throw new JqRuntimeError(`strftime requires a number input, got ${jqType(input)}`);
-        const fmtValues = fmtFilter(input);
-        const results: JsonValue[] = [];
-        for (const fmt of fmtValues) {
-          if (typeof fmt !== "string")
-            throw new JqRuntimeError("strftime/1 requires a string format");
-          results.push(formatStrftime(fmt, input));
+        if (typeof input === "number") {
+          const fmtValues = fmtFilter(input);
+          const results: JsonValue[] = [];
+          for (const fmt of fmtValues) {
+            if (typeof fmt !== "string")
+              throw new JqRuntimeError("strftime format must be a string");
+            results.push(formatStrftime(fmt, input));
+          }
+          return results;
         }
-        return results;
-      };
-    }
-
-    case "strflocaltime": {
-      if (args.length !== 1) throw new JqRuntimeError("strflocaltime requires 1 argument");
-      const fmtFilter = compile(args[0]!, env);
-      return (input) => {
-        if (typeof input !== "number")
-          throw new JqRuntimeError(`strflocaltime requires a number input, got ${jqType(input)}`);
-        const fmtValues = fmtFilter(input);
-        const results: JsonValue[] = [];
-        for (const fmt of fmtValues) {
-          if (typeof fmt !== "string")
-            throw new JqRuntimeError("strflocaltime/1 requires a string format");
-          results.push(formatStrftime(fmt, input));
+        if (Array.isArray(input)) {
+          if (input.some((v, i) => i < Math.min(input.length, 8) && typeof v !== "number"))
+            throw new JqRuntimeError("strftime requires numeric values in the time array");
+          const padded = [...input] as number[];
+          while (padded.length < 8) padded.push(0);
+          const timestamp = brokenDownToTimestamp(padded);
+          const fmtValues = fmtFilter(input);
+          const results: JsonValue[] = [];
+          for (const fmt of fmtValues) {
+            if (typeof fmt !== "string")
+              throw new JqRuntimeError("strftime format must be a string");
+            results.push(formatStrftime(fmt, timestamp));
+          }
+          return results;
         }
-        return results;
+        throw new JqRuntimeError(`strftime requires a number or array input, got ${jqType(input)}`);
       };
     }
 
@@ -2510,64 +2577,6 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         );
       };
 
-    case "skip": {
-      if (args.length !== 2) throw new JqRuntimeError("skip/2 requires 2 arguments");
-      const nFn = compile(args[0]!, env);
-      const exprFn = compile(args[1]!, env);
-      return (input) => {
-        const results: JsonValue[] = [];
-        for (const n of nFn(input)) {
-          if (typeof n !== "number") throw new JqRuntimeError("skip count must be a number");
-          if (n < 0) throw new JqRuntimeError("skip doesn't support negative count");
-          const all = exprFn(input);
-          results.push(...all.slice(n));
-        }
-        return results;
-      };
-    }
-
-    case "pick": {
-      if (args.length !== 1) throw new JqRuntimeError("pick/1 requires 1 argument");
-      return (input) => {
-        const paths: JsonValue[][] = [];
-        collectPaths(input, args[0]!, paths);
-        let result: JsonValue = null;
-        for (const p of paths) {
-          const val = getPath(input, p);
-          result = setPath(result, p, val);
-        }
-        return [result];
-      };
-    }
-
-    case "trim":
-    case "ltrim":
-    case "rtrim":
-      return (input) => {
-        if (typeof input !== "string") throw new JqRuntimeError("trim input must be a string");
-        if (name === "trim") return [input.replace(WS_START, "").replace(WS_END, "")];
-        if (name === "ltrim") return [input.replace(WS_START, "")];
-        return [input.replace(WS_END, "")];
-      };
-
-    case "trimstr": {
-      if (args.length !== 1) throw new JqRuntimeError("trimstr/1 requires 1 argument");
-      const strFn = compile(args[0]!, env);
-      return (input) => {
-        if (typeof input !== "string")
-          throw new JqRuntimeError(`trimstr requires a string, got ${jqType(input)}`);
-        const results: JsonValue[] = [];
-        for (const s of strFn(input)) {
-          if (typeof s !== "string") throw new JqRuntimeError("trimstr argument must be a string");
-          let r = input;
-          if (r.startsWith(s)) r = r.slice(s.length);
-          if (r.endsWith(s)) r = r.slice(0, r.length - s.length);
-          results.push(r);
-        }
-        return results;
-      };
-    }
-
     case "isempty": {
       if (args.length !== 1) throw new JqRuntimeError("isempty/1 requires 1 argument");
       const fn = compile(args[0]!, env);
@@ -2589,18 +2598,17 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         if (typeof input === "number") {
           timestamp = input;
         } else if (Array.isArray(input)) {
-          // Broken-down time array: [year, month(0-based), day, hour, min, sec, weekday, yearday]
-          // Validate that first element is a number
+          // Broken-down time array (struct tm): [sec, min, hour, mday, mon, year-1900, wday, yday]
           if (typeof input[0] !== "number") {
             throw new JqRuntimeError("strflocaltime/1 requires parsed datetime inputs");
           }
-          const yr = input[0] as number;
-          const mo = (input[1] as number) ?? 0;
-          const dy = (input[2] as number) ?? 1;
-          const hr = (input[3] as number) ?? 0;
-          const mi = (input[4] as number) ?? 0;
-          const sc = (input[5] as number) ?? 0;
-          timestamp = new Date(yr + 1900, mo, dy, hr, mi, sc).getTime() / 1000;
+          const sc = (input[0] as number) ?? 0;
+          const mi = (input[1] as number) ?? 0;
+          const hr = (input[2] as number) ?? 0;
+          const dy = (input[3] as number) ?? 1;
+          const mo = (input[4] as number) ?? 0;
+          const yr = ((input[5] as number) ?? 0) + 1900;
+          timestamp = new Date(yr, mo, dy, hr, mi, sc).getTime() / 1000;
         } else {
           throw new JqRuntimeError(`strflocaltime/1 requires parsed datetime inputs`);
         }
@@ -2620,31 +2628,6 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
         return [{ version: null, deps: [], defs: [] }];
       };
 
-    // Math builtins
-    case "nan":
-      return () => [NaN];
-    case "infinite":
-      return () => [Infinity];
-    case "isnan":
-      return (input) => {
-        if (typeof input !== "number") return [false];
-        return [isNaN(input)];
-      };
-    case "isinfinite":
-      return (input) => {
-        if (typeof input !== "number") return [false];
-        return [!isFinite(input) && !isNaN(input)];
-      };
-    case "isfinite":
-      return (input) => {
-        if (typeof input !== "number") return [false];
-        return [isFinite(input)];
-      };
-    case "isnormal":
-      return (input) => {
-        if (typeof input !== "number") return [false];
-        return [isFinite(input) && input !== 0];
-      };
     case "floor":
       return (input) => {
         if (typeof input !== "number") throw new JqRuntimeError(`Cannot floor ${jqType(input)}`);
@@ -2754,6 +2737,19 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
     }
     case "have_decnum":
       return () => [false];
+    case "significand":
+    case "drem":
+    case "ldexp":
+    case "scalb":
+    case "scalbln":
+    case "nearbyint":
+    case "trunc":
+    case "rint":
+    case "j0":
+    case "j1":
+      return (input) => {
+        throw new JqRuntimeError(`${name} is not implemented`);
+      };
 
     default:
       throw new JqRuntimeError(`Unknown function: ${name}`);
@@ -2809,16 +2805,43 @@ function jqType(v: JsonValue): string {
 }
 
 function jqTruncate(v: JsonValue): string {
-  const s = typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v);
-  if (s.length > 15) {
-    // Truncate string content (inside quotes) at ~15 visible chars
-    if (typeof v === "string") {
-      const inner = v.length > 13 ? v.slice(0, 13) + "..." : v;
-      return JSON.stringify(inner);
+  if (typeof v === "string") {
+    const quoted = JSON.stringify(v);
+    const byteLen = utf8ByteLength(quoted);
+    if (byteLen > 29) {
+      // Truncate characters until the representation fits ~29 bytes
+      let truncLen = v.length;
+      while (truncLen > 0) {
+        truncLen--;
+        const truncContent = v.slice(0, truncLen) + "...";
+        const truncQuoted = JSON.stringify(truncContent);
+        if (utf8ByteLength(truncQuoted) <= 30) {
+          return truncQuoted;
+        }
+      }
+      return '"..."';
     }
-    return s.length > 20 ? s.slice(0, 17) + "..." : s;
+    return quoted;
+  }
+  const s = JSON.stringify(v);
+  if (s.length > 26) {
+    return s.slice(0, 23) + "...";
   }
   return s;
+}
+
+function utf8ByteLength(s: string): number {
+  let bytes = 0;
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code <= 0x7f) bytes += 1;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      bytes += 4;
+      i++; // skip low surrogate
+    } else bytes += 3;
+  }
+  return bytes;
 }
 
 function isTruthy(v: JsonValue | undefined): boolean {
@@ -3005,7 +3028,19 @@ function applyArith(op: string, l: JsonValue, r: JsonValue): JsonValue {
   if (op === "-" && r === null) return l;
 
   if (typeof l !== "number" || typeof r !== "number") {
-    throw new JqRuntimeError(`Cannot apply ${op} to ${jqType(l)} and ${jqType(r)}`);
+    const opName =
+      op === "+"
+        ? "added"
+        : op === "-"
+          ? "subtracted"
+          : op === "*"
+            ? "multiplied"
+            : op === "/"
+              ? "divided"
+              : `${op}'d`;
+    throw new JqRuntimeError(
+      `${jqType(l)} (${jqTruncate(l)}) and ${jqType(r)} (${jqTruncate(r)}) cannot be ${opName}`,
+    );
   }
   switch (op) {
     case "+":
@@ -3015,7 +3050,10 @@ function applyArith(op: string, l: JsonValue, r: JsonValue): JsonValue {
     case "*":
       return l * r;
     case "/":
-      if (r === 0) throw new JqRuntimeError("Division by zero");
+      if (r === 0)
+        throw new JqRuntimeError(
+          `number (${l}) and number (${r}) cannot be divided because the divisor is zero`,
+        );
       return l / r;
     case "%": {
       if (r === 0) throw new JqRuntimeError("Modulo by zero");
@@ -3634,6 +3672,13 @@ function pad3(n: number): string {
   return `${n}`;
 }
 
+function brokenDownToTimestamp(parts: number[]): number {
+  // struct tm format: [sec, min, hour, mday, mon, year-1900, wday, yday]
+  const [sec, min, hour, mday, mon, tmYear] = parts;
+  const year = (tmYear ?? 0) + 1900;
+  return Date.UTC(year, mon ?? 0, mday ?? 0, hour ?? 0, min ?? 0, sec ?? 0) / 1000;
+}
+
 function formatStrftime(fmt: string, timestamp: number): string {
   const d = new Date(timestamp * 1000);
   const year = d.getUTCFullYear();
@@ -3972,6 +4017,17 @@ const BUILTIN_NAMES = [
   "isinfinite",
   "isfinite",
   "isnormal",
+  "atan2",
+  "significand",
+  "drem",
+  "ldexp",
+  "scalb",
+  "scalbln",
+  "nearbyint",
+  "trunc",
+  "rint",
+  "j0",
+  "j1",
   "sort",
   "sort_by",
   "group_by",
@@ -4055,6 +4111,7 @@ const BUILTIN_NAMES = [
   "@tsv",
   "@json",
   "@uri",
+  "@urid",
   "@text",
   "@sh",
   "bsearch",
@@ -4066,6 +4123,7 @@ const BUILTIN_NAMES = [
   "gmtime",
   "mktime",
   "strftime",
+  "strflocaltime",
   "strptime",
   "todate",
   "date",
@@ -4073,40 +4131,13 @@ const BUILTIN_NAMES = [
   "dateadd",
   "datesub",
   "toboolean",
-  "skip",
-  "pick",
   "trim",
   "ltrim",
   "rtrim",
   "trimstr",
   "isempty",
-  "strflocaltime",
   "modulemeta",
-  "@urid",
-  "atan2",
   "have_decnum",
-  "nan",
-  "infinite",
-  "isnan",
-  "isinfinite",
-  "isfinite",
-  "isnormal",
-  "floor",
-  "ceil",
-  "round",
-  "sqrt",
-  "sin",
-  "cos",
-  "tan",
-  "asin",
-  "acos",
-  "atan",
-  "log",
-  "log2",
-  "log10",
-  "exp",
-  "exp2",
-  "pow",
   "JOIN",
 ];
 
@@ -4155,11 +4186,29 @@ function buildRegex(
 function buildMatchObject(m: RegExpExecArray): JsonValue {
   const captures: JsonValue[] = [];
   const namedCaptures: Record<string, JsonValue> = {};
+  // Build a map from group index to group name
+  const groupNames: (string | null)[] = [null]; // index 0 = whole match, no name
+  if (m.groups) {
+    const groupEntries = Object.keys(m.groups);
+    // Extract group names in order by matching them to indices
+    // Named groups in m.groups are in definition order in modern JS engines
+    const usedIndices = new Set<number>();
+    for (const name of groupEntries) {
+      // Find the index for this named group
+      for (let i = 1; i < m.length; i++) {
+        if (usedIndices.has(i)) continue;
+        if (m[i] === m.groups[name] || (m[i] === undefined && m.groups[name] === undefined)) {
+          while (groupNames.length <= i) groupNames.push(null);
+          groupNames[i] = name;
+          usedIndices.add(i);
+          break;
+        }
+      }
+    }
+  }
   if (m.length > 1) {
     for (let i = 1; i < m.length; i++) {
-      const groupName = m.groups
-        ? (Object.entries(m.groups).find(([_, v]) => v === m[i])?.[0] ?? null)
-        : null;
+      const groupName = groupNames[i] ?? null;
       if (m[i] === undefined) {
         captures.push({ offset: -1, length: 0, string: null, name: groupName });
         if (groupName) namedCaptures[groupName] = null;
