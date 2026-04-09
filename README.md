@@ -1,5 +1,7 @@
 # jq-js
 
+[![npm](https://img.shields.io/npm/v/@eurfelux/jq-js)](https://www.npmjs.com/package/@eurfelux/jq-js)
+
 A pure TypeScript implementation of [jq](https://jqlang.github.io/jq/), the JSON processor. Zero native dependencies, full ESM + CJS support.
 
 ## Why?
