@@ -51,11 +51,27 @@ class Parser {
       } else if (this.match(TokenType.Pipe)) {
         const right = this.parseComma();
         left = { kind: 'pipe', left, right, pos: left.pos };
+      } else if (this.isUpdateOp()) {
+        const op = this.advance().value as '|=' | '+=' | '-=' | '*=' | '/=' | '%=' | '//=';
+        const body = this.parseComma();
+        left = { kind: 'update', path: left, op, body, pos: left.pos };
+      } else if (this.peek().type === TokenType.Assign) {
+        this.advance();
+        const value = this.parseComma();
+        left = { kind: 'assign', path: left, value, pos: left.pos };
       } else {
         break;
       }
     }
     return left;
+  }
+
+  private isUpdateOp(): boolean {
+    const t = this.peek().type;
+    return t === TokenType.UpdatePipe || t === TokenType.PlusAssign ||
+      t === TokenType.MinusAssign || t === TokenType.MultiplyAssign ||
+      t === TokenType.DivideAssign || t === TokenType.ModuloAssign ||
+      t === TokenType.AltAssign;
   }
 
   private parsePattern(): BindingPattern {

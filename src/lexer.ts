@@ -159,6 +159,12 @@ export function lex(input: string): Token[] {
       continue;
     }
 
+    // Three-character operators
+    if (i + 2 < input.length) {
+      const three = input.slice(i, i + 3);
+      if (three === '//=') { tokens.push({ type: TokenType.AltAssign, value: three, pos: i }); i += 3; continue; }
+    }
+
     // Two-character operators
     if (i + 1 < input.length) {
       const two = input.slice(i, i + 2);
@@ -169,6 +175,12 @@ export function lex(input: string): Token[] {
         case '>=': tokens.push({ type: TokenType.Gte, value: two, pos: i }); i += 2; continue;
         case '//': tokens.push({ type: TokenType.Alternative, value: two, pos: i }); i += 2; continue;
         case '..': tokens.push({ type: TokenType.Recurse, value: two, pos: i }); i += 2; continue;
+        case '|=': tokens.push({ type: TokenType.UpdatePipe, value: two, pos: i }); i += 2; continue;
+        case '+=': tokens.push({ type: TokenType.PlusAssign, value: two, pos: i }); i += 2; continue;
+        case '-=': tokens.push({ type: TokenType.MinusAssign, value: two, pos: i }); i += 2; continue;
+        case '*=': tokens.push({ type: TokenType.MultiplyAssign, value: two, pos: i }); i += 2; continue;
+        case '/=': tokens.push({ type: TokenType.DivideAssign, value: two, pos: i }); i += 2; continue;
+        case '%=': tokens.push({ type: TokenType.ModuloAssign, value: two, pos: i }); i += 2; continue;
       }
     }
 
@@ -195,6 +207,7 @@ export function lex(input: string): Token[] {
       case '%': tokens.push({ type: TokenType.Modulo, value: ch, pos }); break;
       case '<': tokens.push({ type: TokenType.Lt, value: ch, pos }); break;
       case '>': tokens.push({ type: TokenType.Gt, value: ch, pos }); break;
+      case '=': tokens.push({ type: TokenType.Assign, value: ch, pos }); break;
       default:
         throw new JqLexError(`Unexpected character: ${ch}`, pos);
     }
