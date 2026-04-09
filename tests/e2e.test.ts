@@ -283,6 +283,47 @@ describe('jq-js e2e', () => {
     });
   });
 
+  // Math builtins
+  describe('math', () => {
+    test('floor/ceil/round', () => {
+      expect(jq('floor', 2.7)).toEqual([2]);
+      expect(jq('ceil', 2.3)).toEqual([3]);
+      expect(jq('round', 2.5)).toEqual([3]);
+      expect(jq('round', 2.4)).toEqual([2]);
+    });
+
+    test('sqrt/fabs', () => {
+      expect(jq('sqrt', 9)).toEqual([3]);
+      expect(jq('fabs', -5)).toEqual([5]);
+    });
+
+    test('log/exp', () => {
+      expect(jq('exp | round', 1)).toEqual([3]); // e^1 ≈ 2.718
+      expect(jq('log', 1)).toEqual([0]);
+      expect(jq('log2 | round', 8)).toEqual([3]);
+      expect(jq('log10', 100)).toEqual([2]);
+    });
+
+    test('pow', () => {
+      expect(jq('pow(2; 10)', null)).toEqual([1024]);
+      expect(jq('pow(3; 2)', null)).toEqual([9]);
+    });
+
+    test('trig', () => {
+      expect(jq('sin | . < 0.01', 0)).toEqual([true]); // sin(0) = 0
+      expect(jq('cos | round', 0)).toEqual([1]); // cos(0) = 1
+      expect(jq('atan | . > 0', 1)).toEqual([true]);
+    });
+
+    test('nan/infinite/checks', () => {
+      expect(jq('nan | isnan', null)).toEqual([true]);
+      expect(jq('infinite | isinfinite', null)).toEqual([true]);
+      expect(jq('1 | isfinite', null)).toEqual([true]);
+      expect(jq('1 | isnormal', null)).toEqual([true]);
+      expect(jq('0 | isnormal', null)).toEqual([false]);
+    });
+  });
+
   // Try-catch
   test.each([
     ['try .a', null, []],

@@ -789,6 +789,78 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
     case 'scalars':
       return (input) => (typeof input !== 'object' || input === null ? [input] : []);
 
+    // Math builtins — zero-arg (operate on input number)
+    case 'floor': return mathUnary(Math.floor);
+    case 'ceil': return mathUnary(Math.ceil);
+    case 'round': return mathUnary(Math.round);
+    case 'sqrt': return mathUnary(Math.sqrt);
+    case 'fabs': return mathUnary(Math.abs);
+    case 'log': return mathUnary(Math.log);
+    case 'log2': return mathUnary(Math.log2);
+    case 'log10': return mathUnary(Math.log10);
+    case 'exp': return mathUnary(Math.exp);
+    case 'exp2': return mathUnary((x) => 2 ** x);
+    case 'sin': return mathUnary(Math.sin);
+    case 'cos': return mathUnary(Math.cos);
+    case 'tan': return mathUnary(Math.tan);
+    case 'asin': return mathUnary(Math.asin);
+    case 'acos': return mathUnary(Math.acos);
+    case 'atan': {
+      if (args.length === 0) return mathUnary(Math.atan);
+      // atan(y; x) — two-arg form
+      const yFn = compile(args[0]!);
+      const xFn = compile(args[1]!);
+      return (input) =>
+        yFn(input).flatMap((y) =>
+          xFn(input).map((x) => {
+            if (typeof y !== 'number' || typeof x !== 'number')
+              throw new JqRuntimeError('atan requires number arguments');
+            return Math.atan2(y, x);
+          }),
+        );
+    }
+    case 'cbrt': return mathUnary(Math.cbrt);
+    case 'significand':
+    case 'exponent':
+    case 'logb':
+      // These IEEE 754 decomposition functions don't have direct JS equivalents
+      throw new JqRuntimeError(`${name} is not supported in jq-js`);
+
+    // Math builtins — two-arg
+    case 'pow': {
+      if (args.length !== 2) throw new JqRuntimeError('pow requires 2 arguments');
+      const baseFn = compile(args[0]!);
+      const expFn = compile(args[1]!);
+      return (input) =>
+        baseFn(input).flatMap((b) =>
+          expFn(input).map((e) => {
+            if (typeof b !== 'number' || typeof e !== 'number')
+              throw new JqRuntimeError('pow requires number arguments');
+            return Math.pow(b, e);
+          }),
+        );
+    }
+
+    // Math constants / checks
+    case 'nan': return () => [NaN];
+    case 'infinite': return () => [Infinity];
+    case 'isnan': return (input) => {
+      if (typeof input !== 'number') throw new JqRuntimeError(`number expected, got ${jqType(input)}`);
+      return [Number.isNaN(input)];
+    };
+    case 'isinfinite': return (input) => {
+      if (typeof input !== 'number') throw new JqRuntimeError(`number expected, got ${jqType(input)}`);
+      return [!Number.isFinite(input) && !Number.isNaN(input)];
+    };
+    case 'isfinite': return (input) => {
+      if (typeof input !== 'number') throw new JqRuntimeError(`number expected, got ${jqType(input)}`);
+      return [Number.isFinite(input)];
+    };
+    case 'isnormal': return (input) => {
+      if (typeof input !== 'number') throw new JqRuntimeError(`number expected, got ${jqType(input)}`);
+      return [Number.isFinite(input) && input !== 0];
+    };
+
     case 'input':
     case 'inputs':
       throw new JqRuntimeError(`${name} is not supported in jq-js`);
@@ -796,6 +868,15 @@ function compileBuiltin(name: string, args: AstNode[], pos: number): Filter {
     default:
       throw new JqRuntimeError(`Unknown function: ${name}`);
   }
+}
+
+// --- Math helper ---
+
+function mathUnary(fn: (x: number) => number): Filter {
+  return (input) => {
+    if (typeof input !== 'number') throw new JqRuntimeError(`number expected, got ${jqType(input)}`);
+    return [fn(input)];
+  };
 }
 
 // --- Helpers ---
