@@ -1773,7 +1773,7 @@ function compileBuiltin(name: string, args: AstNode[], pos: number, env: Env): F
       return (input) => (typeof input !== "object" || input === null ? [input] : []);
 
     case "tojson":
-      return (input) => [jqStringify(input)];
+      return (input) => [JSON.stringify(input)];
 
     case "fromjson":
       return (input) => {
