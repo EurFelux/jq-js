@@ -1,0 +1,54 @@
+{
+  "name": "jq-js",
+  "version": "0.1.0",
+  "description": "A pure TypeScript implementation of jq, the JSON processor",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "keywords": [
+    "jq",
+    "json",
+    "query",
+    "filter",
+    "parser",
+    "typescript"
+  ],
+  "license": "MIT",
+  "packageManager": "pnpm@10.32.0",
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "tsdown": "^0.21.7",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "picocolors": "^1.1.1"
+  }
+}
